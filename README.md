@@ -388,6 +388,13 @@ config :spectre_directive, :codex_client, MyApp.CodexClient
 
 The client should implement `run(job, context)`.
 
+The real Codex app-server integration test is opt-in because it launches Codex
+and may use your configured account/model:
+
+```bash
+SPECTRE_DIRECTIVE_RUN_CODEX_INTEGRATION=1 mix test test/codex_integration_test.exs --trace
+```
+
 ## Project Layout
 
 ```text

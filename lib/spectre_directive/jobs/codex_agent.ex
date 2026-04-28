@@ -10,7 +10,7 @@ defmodule SpectreDirective.Jobs.CodexAgent do
           command: binary(),
           approval_policy: binary() | map(),
           thread_sandbox: binary(),
-          sandbox_policy: map(),
+          sandbox_policy: map() | nil,
           timeout_ms: pos_integer(),
           metadata: map()
         }
@@ -21,7 +21,7 @@ defmodule SpectreDirective.Jobs.CodexAgent do
             command: "codex app-server",
             approval_policy: "never",
             thread_sandbox: "workspace-write",
-            sandbox_policy: %{},
+            sandbox_policy: nil,
             timeout_ms: 3_600_000,
             metadata: %{}
 end
