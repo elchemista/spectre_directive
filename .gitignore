@@ -10,6 +10,12 @@
 # Where third-party dependencies like ExDoc output generated docs.
 /doc/
 
+.elixir_ls/
+
+/spectre_kinetic/
+/spectre_mnemonic/
+/symphony/
+
 # Temporary files, for example, from tests.
 /tmp/
 
