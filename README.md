@@ -1,42 +1,53 @@
 # SpectreDirective
 
-SpectreDirective is an AL-first Elixir library for running isolated commands,
-agent turns, and multi-step workflows while tracking task state in memory.
+SpectreDirective is a self-correcting mission planner for Spectre agents.
 
-The important design choice is that executable work is represented by job
-structs. `SpectreDirective.Job` is a protocol, so future agents or task types
-can be added by defining a struct and implementing the protocol. The manager
-does not need to know whether a job runs on the host, in a workspace, under a
-Linux user, or through Codex.
+It is __NOT__ a workflow engine, task queue, command runner, browser automation
+library, or YAML-shaped workflow wrapper. It gives an agent a mission, keeps a living
+plan, checks whether each step still matters, and corrects direction when new
+information changes the situation.
 
-## What It Owns
+The short version:
 
-- AL fallback parsing for core Directive actions.
-- Protocol-based job execution.
-- In-memory task lifecycle tracking.
-- Task events, progress, last agent message, and session id.
-- Human/LLM-readable status and error reports.
-- Workspace preparation and command execution.
-- Optional Codex app-server execution.
-- Optional bridges to `spectre_kinetic` and `spectre_mnemonic`.
-- Basic execution policy gates for host commands and workspace paths.
+```text
+Mission
+  -> Knowledge
+  -> Capabilities
+  -> Plan
+  -> Step
+  -> Observation
+  -> Impact
+  -> Alignment
+  -> Correction
+  -> Trace / Pulse
+  -> Control
+```
 
-## What It Does Not Own
+The plan is not sacred. The plan is alive.
 
-- Durable memory. Use `spectre_mnemonic` through the optional adapter.
-- Tool selection/ranking. Use `spectre_kinetic` through the optional adapter.
-- A full distributed scheduler or external issue tracker daemon.
-- A hardened security sandbox. The current policy layer is intentionally small
-  and must be treated as a guardrail, not a complete isolation boundary.
+## Why
+
+Agents are very good at producing motion. Sometimes that motion is useful.
+Sometimes it is a scenic tour through irrelevance.
+
+SpectreDirective exists to keep asking:
+
+```text
+Given what we know now, should we still do this?
+```
+
+That is the difference between a mission planner and a step runner. A step
+runner executes the next item. A mission planner checks whether the next item
+still serves the mission.
 
 ## Installation
 
-For local development:
+For local Spectre development:
 
 ```elixir
 def deps do
   [
-    {:spectre_directive, path: "../spectre_directive"}
+    {:spectre_directive, github: "elchemista/spectre_directive"}
   ]
 end
 ```
@@ -53,366 +64,547 @@ end
 
 ## Quick Start
 
-Run a workspace-isolated command from AL:
+For an agent-created mission, use `SpectreDirective.create/1`:
 
 ```elixir
-{:ok, result} =
-  SpectreDirective.run(
-    ~s(RUN COMMAND WITH: COMMAND="printf hello" CWD="demo")
-  )
-
-result.output
+{:ok, mission} =
+  SpectreDirective.create(%{
+    mission: "Make sure a new user can finish sign up",
+    context: "This is a release check. Do not use real customer data.",
+    success: "A test user reaches a valid post-signup state.",
+    capabilities: [
+      %{name: :observe_page, description: "Observe the current browser page."},
+      %{name: :fill_form, description: "Fill fields in a test form.", risk: :medium}
+    ],
+    mode: :guided,
+    model: &MyApp.ModelClient.complete/1
+  })
 ```
 
-Submit a task asynchronously:
+`model` receives SpectreDirective's English planning prompts and returns normal
+text. No planner module is needed. With `mode: :guided`, the planner asks the
+model for a strategy, then one step at a time until the model answers
+`Finish: reason`.
+
+For reusable authored checks, use `use SpectreDirective`:
 
 ```elixir
-{:ok, task} =
-  SpectreDirective.submit(
-    ~s(RUN COMMAND WITH: COMMAND="mix test" CWD="repo")
-  )
+defmodule MyApp.Directives.Signup do
+  use SpectreDirective
 
-{:ok, status} = SpectreDirective.status(task.id)
-{:ok, done} = SpectreDirective.await(task.id, 60_000)
-```
+  directive "signup-check" do
+    mission "Make sure a new user can finish sign up"
+    context "This is a release check. Do not use real customer data."
+    success "A test user reaches dashboard, onboarding, or a clear verification screen."
+    mode :guided
 
-Ask for an LLM-readable status report:
+    capabilities do
+      require_capability :observe_current_state
+      allow :form_fill
+      allow :screenshot
+      deny :real_payment
+    end
 
-```elixir
-{:ok, text} = SpectreDirective.status_text(task.id)
-IO.puts(text)
-```
+    strategies do
+      use :qa_flow
+      use :safe_operator
+    end
 
-Example report:
+    step "Observe signup entry" do
+      kind :observe
+      flexibility :guided
+      purpose "Understand the real signup options before acting"
+      expects "Visible signup methods, required fields, and possible blockers."
+    end
 
-```text
-Task task_123
-status: running
-job: agent
-session: slow-session
-last_event: agent_message
-last_message: thinking about live work
-```
-
-## Job Structs
-
-Built-in job structs live under `SpectreDirective.Jobs`:
-
-- `HostCommand` runs directly on the current machine.
-- `WorkspaceCommand` runs inside a prepared workspace.
-- `UserCommand` runs through `sudo -u`.
-- `Agent` delegates to a custom agent adapter.
-- `CodexAgent` runs a Codex app-server turn.
-- `Workflow` runs child jobs sequentially or in parallel.
-
-Host execution is blocked unless explicitly allowed:
-
-```elixir
-alias SpectreDirective.Jobs.HostCommand
-
-job = %HostCommand{
-  command: "printf trusted",
-  allow_host_execution: true
-}
-
-SpectreDirective.run(job)
-```
-
-## Isolation And Security Policy
-
-SpectreDirective currently implements a basic execution policy. This is
-important: it is not a complete sandbox and should not be described as one.
-
-Implemented today:
-
-- `HostCommand` is denied by default.
-- `HostCommand` runs only when explicitly allowed.
-- `WorkspaceCommand` prepares and runs inside a configured workspace root.
-- Relative workspace paths are resolved under the workspace root.
-- Workspace escape attempts are rejected.
-- `UserCommand` requires an explicit Linux user and the `sudo` runtime.
-- `CodexAgent` requires an explicit `cwd`.
-
-Not implemented yet:
-
-- No central `SpectreDirective.Security.Policy` module.
-- No command allowlist or denylist.
-- No per-job risk approval workflow.
-- No policy caps for max timeout, environment variables, or writable paths.
-- No LLM-readable policy report.
-- No OS-level sandbox beyond the selected job implementation.
-
-### Controlling Host Execution
-
-Host execution is globally blocked unless you opt in.
-
-Global config:
-
-```elixir
-config :spectre_directive,
-  allow_host_execution: false
-```
-
-Per job:
-
-```elixir
-%SpectreDirective.Jobs.HostCommand{
-  command: "ls /tmp",
-  allow_host_execution: true
-}
-```
-
-Per call:
-
-```elixir
-SpectreDirective.run(
-  ~s(RUN HOST COMMAND WITH: COMMAND="ls /tmp"),
-  allow_host_execution: true
-)
-```
-
-AL also supports an explicit `ALLOW=true` slot:
-
-```text
-RUN HOST COMMAND WITH: COMMAND="ls /tmp" ALLOW=true
-```
-
-If host execution is not allowed, the task fails with:
-
-```elixir
-{:host_execution_not_allowed, %{mode: :host, ...}}
-```
-
-Use `SpectreDirective.error_text/1` to explain the failure to an LLM or agent:
-
-```elixir
-SpectreDirective.error_text({:host_execution_not_allowed, %{mode: :host}})
-```
-
-### Controlling Workspace Execution
-
-Workspace jobs run under `:workspace_root`.
-
-```elixir
-config :spectre_directive,
-  workspace_root: "/tmp/spectre_directive_workspaces"
-```
-
-This AL:
-
-```text
-RUN COMMAND WITH: COMMAND="mkdir -p out && ls" CWD="task-a"
-```
-
-runs under:
-
-```text
-/tmp/spectre_directive_workspaces/task-a
-```
-
-Absolute or relative paths that resolve outside the configured root are rejected
-with a `{:workspace_escape, path, root}` error.
-
-### User Execution
-
-`UserCommand` is available for Linux user isolation:
-
-```elixir
-%SpectreDirective.Jobs.UserCommand{
-  command: "whoami",
-  user: "worker",
-  cwd: "/safe/workspace"
-}
-```
-
-This uses `sudo -n -u worker`. If `sudo` is unavailable, validation returns:
-
-```elixir
-{:runtime_unavailable, :sudo}
-```
-
-## Extending With A New Job
-
-Define a struct:
-
-```elixir
-defmodule MyApp.Jobs.SearchAgent do
-  defstruct [:query, :model, timeout_ms: 120_000]
+    step "Verify mission result" do
+      kind :verify
+      flexibility :locked
+      purpose "Decide if the mission succeeded"
+      expects "Pass/fail result with evidence and blocker."
+    end
+  end
 end
 ```
 
-Implement the protocol:
+Run it:
 
 ```elixir
-defimpl SpectreDirective.Job, for: MyApp.Jobs.SearchAgent do
-  def describe(_job) do
+{:ok, mission} = SpectreDirective.start_directive(MyApp.Directives.Signup)
+
+{:ok, pulse} = SpectreDirective.pulse(mission)
+{:ok, step} = SpectreDirective.next_step(mission)
+
+{:ok, pulse} =
+  SpectreDirective.complete_step(mission, %{
+    summary: "Signup form is visible and asks for email and password.",
+    facts: ["The public signup form loads."],
+    mission_relevant_facts: ["Primary signup path is available."],
+    impact: "The mission can continue through the normal signup path."
+  })
+```
+
+SpectreDirective lazily starts its runtime infrastructure. If your application
+wants supervision ownership, add it to your own tree:
+
+```elixir
+children = [
+  SpectreDirective
+]
+```
+
+## Connecting An AI Model
+
+SpectreDirective does not call OpenAI, Anthropic, Ollama, or any other model
+provider directly. That is intentional. The library is the mission planner and
+state machine. Your application owns the model calls.
+
+There are two model moments:
+
+- Planning: the model can create the initial plan and steps.
+- Execution: the model can complete each selected step and report observations.
+
+For AI-created plans, the small path is `create/1`:
+
+```elixir
+{:ok, mission} =
+  SpectreDirective.create(%{
+    mission: "Check the signup flow",
+    context: "Release QA",
+    capabilities: [:observe_page, :fill_form],
+    mode: :guided,
+    model: &MyApp.ModelClient.complete/1
+  })
+```
+
+The function receives an English prompt and returns English planning text.
+No planner module is required for that.
+
+Use draft planning when one full plan is enough:
+
+```elixir
+{:ok, mission} =
+  SpectreDirective.create(%{
+    mission: "Check the signup flow",
+    model: &MyApp.ModelClient.complete/1,
+    planning_mode: :draft
+  })
+```
+
+Use guided planning when the model should think one piece at a time:
+
+```elixir
+{:ok, mission} =
+  SpectreDirective.create(%{
+    mission: "Check the signup flow",
+    model: &MyApp.ModelClient.complete/1,
+    planning_mode: :guided,
+    planning_max_steps: 6
+  })
+```
+
+Guided planning asks for a strategy first, then repeatedly asks for one next
+step or `Finish: reason`. It costs more model calls, but the plan is easier to
+steer and validate while it is being created.
+
+For larger applications, you can still implement `SpectreDirective.Planner`:
+
+```elixir
+defmodule MyApp.DirectivePlanner do
+  @behaviour SpectreDirective.Planner
+
+  @impl SpectreDirective.Planner
+  def draft_plan(request, _opts) do
+    MyApp.ModelClient.complete(request.prompt)
+  end
+end
+```
+
+In both modes, the model is asked for normal planning text, not a data blob:
+
+```text
+Strategy: inspect the real signup path before acting.
+
+Plan:
+1. Observe signup entry
+   kind: observe
+   purpose: Understand the available signup options.
+   expects: Visible methods, required fields, and blockers.
+   capability: observe_page
+   flexibility: guided
+
+2. Verify signup result
+   kind: verify
+   purpose: Decide whether the signup path satisfies the release check.
+   expects: Pass/fail result with evidence.
+   flexibility: locked
+```
+
+Planning runs after memory recall and capability discovery, so the model can
+plan with what the mission already knows and what the agent can actually do.
+SpectreDirective parses the textual draft into real steps. If the draft cannot
+be parsed, it falls back to the existing authored or emergent plan and records
+that in the trace.
+
+Execution is the second loop:
+
+```text
+start mission
+read pulse, knowledge, and next step
+ask the model what to do or what it observed
+let the model use your tools
+submit the result as an observation
+repeat until the mission finishes, pauses, or stops
+```
+
+In code, that can look like this:
+
+```elixir
+defmodule MyApp.DirectiveAgent do
+  @terminal [:finished, :stopped, :aborted]
+
+  def run(directive_module, opts \\ []) do
+    {:ok, mission} = SpectreDirective.start_directive(directive_module, opts)
+    loop(mission, opts)
+  end
+
+  defp loop(mission, opts) do
+    {:ok, pulse} = SpectreDirective.pulse(mission)
+
+    if pulse.status in @terminal do
+      {:ok, pulse}
+    else
+      {:ok, step} = SpectreDirective.next_step(mission)
+      {:ok, knowledge} = SpectreDirective.knowledge(mission)
+
+      observation =
+        MyApp.AIModel.complete_step(%{
+          mission: mission,
+          pulse: pulse,
+          step: step,
+          knowledge: knowledge,
+          tools: Keyword.get(opts, :tools, [])
+        })
+
+      {:ok, _pulse} = SpectreDirective.complete_step(mission, observation)
+      loop(mission, opts)
+    end
+  end
+end
+```
+
+The model adapter is normal host-application code:
+
+```elixir
+defmodule MyApp.AIModel do
+  def complete_step(%{step: step, pulse: pulse, knowledge: knowledge, tools: tools}) do
+    response =
+      MyApp.ModelClient.respond(%{
+        system: "You are executing one SpectreDirective mission step.",
+        mission: pulse.mission,
+        current_step: step,
+        known_facts: knowledge.facts,
+        tools: tools
+      })
+
     %{
-      type: :search_agent,
-      capability: "Searches internal documents.",
-      risk: :low,
-      required_fields: [:query],
-      expected_output: "search results",
-      isolation_modes: [:agent]
+      summary: response.summary,
+      facts: response.facts,
+      mission_relevant_facts: response.mission_relevant_facts,
+      evidence: response.evidence,
+      impact: response.impact,
+      correction: response.correction || :continue,
+      confidence: response.confidence,
+      raw: response
     }
   end
-
-  def validate(%{query: query}, _context) when is_binary(query) and query != "", do: :ok
-  def validate(_job, _context), do: {:error, {:invalid_job, :missing_query}}
-
-  def isolation(job, _context), do: %{mode: :agent, model: job.model}
-
-  def run(job, context) do
-    context.emit.(:agent_message, %{message: "searching #{job.query}"})
-    {:ok, MyApp.Search.run(job.query)}
-  end
-
-  def cancel(_job, _context), do: :ok
 end
 ```
 
-Then submit it:
+Capability adapters tell SpectreDirective what the agent is allowed to do.
+The model runner decides when to use those capabilities and returns what
+happened. That separation keeps this library independent from every model SDK
+while still making it easy to plug into any agent stack.
+
+## Emergent Missions
+
+You do not need an authored directive when the route is unknown:
 
 ```elixir
-SpectreDirective.submit(%MyApp.Jobs.SearchAgent{query: "deployment notes"})
+{:ok, mission} =
+  SpectreDirective.start_mission("Analyze a GitHub profile for React frontend fit",
+    context: "Backend evidence is secondary; React/frontend evidence is primary.",
+    success: "Concise fit summary with evidence and uncertainty.",
+    mode: :adaptive
+  )
 ```
 
-## AL Fallback Resolver
-
-Directive works without `spectre_kinetic`. The built-in resolver supports:
+This creates a conservative skeleton plan:
 
 ```text
-RUN COMMAND WITH: COMMAND="..." CWD="..."
-RUN HOST COMMAND WITH: COMMAND="..." ALLOW=true
-RUN USER COMMAND WITH: COMMAND="..." USER="worker"
-RUN CODEX TASK WITH: PROMPT="..." CWD="..." MODEL="..."
-SPAWN AGENT WITH: TASK="..." MODEL="..." ROLE="..."
+remember -> observe -> investigate -> verify -> summarize
 ```
 
-If `:kinetic` is passed, Directive tries `SpectreKinetic.plan/3` at runtime.
-There is no compile-time dependency.
+It is a first guess, not a prophecy. First guesses are allowed to be wrong. That
+is why the correction loop exists.
 
-## Tracking And Reports
+## DSL Validation
 
-Structured APIs:
+Authored directives fail at compile time when the basics are missing:
 
-```elixir
-SpectreDirective.status(task_id)
-SpectreDirective.events(task_id)
-SpectreDirective.snapshot()
+```text
+mission is required
+context is required
+success is required
+at least one step is required
+each step needs a purpose
+kind, flexibility, and risk must be known values
 ```
 
-LLM-readable APIs:
+No silent empty mission. No mystery plan with zero steps. Runtime has enough
+uncertainty already.
 
-```elixir
-SpectreDirective.status_text(task_id)
-SpectreDirective.events_text(task_id)
-SpectreDirective.snapshot_text()
-SpectreDirective.error_text(reason)
+## Runtime Loop
+
+The mission loop is:
+
+```text
+start mission
+recall memory
+discover capabilities
+load or create plan
+select next useful step
+run pre-step alignment
+wait for completion or external execution
+capture observation
+update knowledge
+derive impact
+run post-step alignment
+apply correction
+update trace and pulse
+continue, pause, stop, or finish
 ```
 
-Tracked task fields include:
+Two checks matter most:
 
-- `status`
-- `progress`
-- `result`
-- `error`
-- `last_event`
-- `last_message`
-- `last_event_at`
-- `session_id`
-- recent events
+- Before a step: is this still worth doing?
+- After a step: what changed because of what we learned?
 
-These fields let an agent ask what is running and understand what a subagent is
-doing without decoding raw structs.
+That tiny hesitation before blindly doing the next thing is the library.
 
-## Workflows
-
-Run a sequence of jobs:
+## Public API
 
 ```elixir
-alias SpectreDirective.Jobs.WorkspaceCommand
-
-jobs = [
-  %WorkspaceCommand{command: "mix deps.get", cwd: "repo"},
-  %WorkspaceCommand{command: "mix test", cwd: "repo"}
-]
-
-{:ok, task} = SpectreDirective.workflow(jobs)
-{:ok, done} = SpectreDirective.await(task.id)
+SpectreDirective.create(attrs)
+SpectreDirective.start_mission(mission, opts \\ [])
+SpectreDirective.start_directive(module_or_blueprint, opts \\ [])
+SpectreDirective.pulse(ref)
+SpectreDirective.trace(ref)
+SpectreDirective.plan(ref)
+SpectreDirective.knowledge(ref)
+SpectreDirective.next_step(ref)
+SpectreDirective.complete_step(ref, observation)
+SpectreDirective.apply_observation(ref, observation)
+SpectreDirective.control(ref, action)
+SpectreDirective.await(ref, timeout \\ 60_000)
 ```
 
-`SpectreDirective.Jobs.Workflow` also supports `mode: :parallel`.
+`ref` can be a mission process pid or mission id.
 
-## Optional Integrations
+## Pulse And Trace
 
-### SpectreKinetic
-
-Pass a Kinetic runtime or server target:
+`pulse/1` is the live meaning snapshot:
 
 ```elixir
-SpectreDirective.submit(al_text, kinetic: kinetic_runtime)
-```
-
-Directive will ask Kinetic to plan the AL, then map the planned action back to
-a Directive job.
-
-### SpectreMnemonic
-
-If `SpectreMnemonic` is available, task events are sent as memory signals.
-You can also configure a custom memory adapter:
-
-```elixir
-config :spectre_directive, :memory_adapter, MyApp.DirectiveMemory
-```
-
-The adapter should implement `record(event, opts)`.
-
-## Codex
-
-`SpectreDirective.Jobs.CodexAgent` uses a minimal Codex app-server client by
-default:
-
-```elixir
-%SpectreDirective.Jobs.CodexAgent{
-  prompt: "Fix the failing tests",
-  cwd: "/path/to/workspace",
-  model: "gpt-5.3-codex"
+%SpectreDirective.Pulse{
+  mission: "Analyze a GitHub profile for React frontend fit",
+  status: :running,
+  current_step: %SpectreDirective.Step{title: "Search frontend evidence"},
+  current_understanding: "Backend evidence is strong; React evidence is not yet found.",
+  alignment: %SpectreDirective.Alignment.Result{status: :aligned},
+  risk: :low,
+  blocked?: false,
+  next_expected_action: "continue: Search frontend evidence",
+  controls: [:pause, :stop, :retry, :skip, :revise, :finish_early]
 }
 ```
 
-You can replace the client:
+`trace/1` is the readable mission story. Logs say what happened. Trace explains
+why it mattered.
 
-```elixir
-config :spectre_directive, :codex_client, MyApp.CodexClient
-```
+## Core Concepts
 
-The client should implement `run(job, context)`.
+- `Mission` is the goal, context, success criteria, status, risk boundaries, and
+  memory scope.
+- `Knowledge` is layered: known facts, assumptions, observations, derived facts,
+  mission-relevant facts, low-relevance facts, decisions, confidence, and open
+  questions.
+- `Capability` is something the mission can realistically do now, not just a
+  function name in a tool list.
+- `Plan` is the current strategy. It is versioned because correction is normal.
+- `Step` is intent plus action shape: kind, purpose, reason, expected output,
+  done condition, risk, required capability, status, and flexibility.
+- `Observation` says what happened.
+- `Impact` says why it matters.
+- `Correction` says what should change.
+- `Pulse` says what is happening now.
+- `Trace` says why the mission moved.
 
-The real Codex app-server integration test is opt-in because it launches Codex
-and may use your configured account/model:
+The useful distinction is this: true and useful are not the same word. A fact
+can be accurate and still be low-value for the current mission.
 
-```bash
-SPECTRE_DIRECTIVE_RUN_CODEX_INTEGRATION=1 mix test test/codex_integration_test.exs --trace
-```
+## Architecture
 
-## Project Layout
+Main modules:
+
+| Module | Role |
+| --- | --- |
+| `SpectreDirective` | Public facade and `use SpectreDirective` entry point. |
+| `SpectreDirective.DSL` | Authoring macros. Compiles modules into mission blueprints. |
+| `SpectreDirective.MissionBlueprint` | Reusable authored or emergent mission definition. |
+| `SpectreDirective.Runtime.MissionMachine` | Per-mission `:gen_statem`; state name is mission status. |
+| `SpectreDirective.Runtime.StepGate` | Pre-step alignment. Starts, skips, pauses, blocks, or finishes. |
+| `SpectreDirective.Runtime.ObservationRecorder` | Records observation, impact, knowledge, memory, correction, and trace. |
+| `SpectreDirective.Runtime.PlanReviser` | Applies corrections and records plan revisions. |
+| `SpectreDirective.Pulse` | Live status snapshot. |
+| `SpectreDirective.Trace.Entry` | Human-readable mission story entry. |
+
+Mission states:
 
 ```text
-lib/spectre_directive.ex              Public facade
-lib/spectre_directive/job.ex          Job protocol
-lib/spectre_directive/jobs/           Job structs
-lib/spectre_directive/job/impl/       Protocol implementations
-lib/spectre_directive/core/           Task, event, presenter
-lib/spectre_directive/runtime/        Manager, command, workspace
-lib/spectre_directive/integrations/   Optional Spectre adapters
-lib/spectre_directive/workflow/       Workflow file cache
-lib/spectre_directive/codex/          Codex app-server client
+running
+paused
+waiting
+blocked
+finished
+stopped
+aborted
 ```
 
-## Development
+The runtime is a state machine because missions actually have states, not
+because state machines look important in diagrams.
+
+## Corrections
+
+Correction types:
+
+```text
+continue
+skip_step
+remove_steps
+add_step
+replace_step
+reorder_steps
+narrow_scope
+expand_scope
+ask_user
+wait
+retry
+delegate
+finish_early
+abort
+```
+
+Correction strategies:
+
+```text
+tactical
+strategic
+scope
+evidence
+cost
+risk
+confidence
+drift
+```
+
+Example:
+
+```elixir
+SpectreDirective.complete_step(mission, %{
+  summary: "The active repositories are mostly backend Elixir libraries.",
+  mission_relevant_facts: ["React/frontend evidence is weak."],
+  impact: "This lowers confidence in React frontend fit.",
+  correction: %{
+    type: :finish_early,
+    strategy: :confidence,
+    reason: "Enough evidence exists to answer the mission."
+  }
+})
+```
+
+Do not inspect twenty more backend repositories just because the plan was
+written before the evidence arrived. That is how agents become very busy and not
+very helpful.
+
+## Integrations
+
+SpectreDirective has two adapter boundaries.
+
+Memory adapters implement `SpectreDirective.MemoryStore`:
+
+```elixir
+defmodule MyApp.SpectreDirective.MnemonicAdapter do
+  @behaviour SpectreDirective.MemoryStore
+
+  alias SpectreDirective.Mission
+
+  @impl SpectreDirective.MemoryStore
+  def recall(%Mission{} = mission, opts) do
+    SpectreMnemonic.recall(mission.goal, Keyword.put_new(opts, :scope, mission.memory_scope))
+  end
+
+  @impl SpectreDirective.MemoryStore
+  def remember(record, opts) do
+    SpectreMnemonic.remember(record, opts)
+  end
+end
+```
+
+Capability adapters implement `SpectreDirective.CapabilityProvider`:
+
+```elixir
+defmodule MyApp.SpectreDirective.LensAdapter do
+  @behaviour SpectreDirective.CapabilityProvider
+
+  alias SpectreDirective.Capability
+  alias SpectreDirective.MissionBlueprint
+
+  @impl SpectreDirective.CapabilityProvider
+  def discover(%MissionBlueprint{}, _opts) do
+    [
+      Capability.new(
+        name: :observe_page,
+        description: "Observe a browser page through SpectreLens.",
+        source: :spectre_lens,
+        risk: :low
+      )
+    ]
+  end
+end
+```
+
+Use adapters at mission start:
+
+```elixir
+{:ok, mission} =
+  SpectreDirective.start_mission("Check signup",
+    memory_adapter: MyApp.SpectreDirective.MnemonicAdapter,
+    capability_adapters: [
+      MyApp.SpectreDirective.KineticAdapter,
+      MyApp.SpectreDirective.LensAdapter
+    ],
+    kinetic: kinetic_runtime
+  )
+```
+
+Generate starter adapters in a host app:
 
 ```bash
-mix format
-mix test
-mix compile --warnings-as-errors
+mix spectre_directive.gen.integration
+mix spectre_directive.gen.integration --only mnemonic,lens
 ```
+
+The generated modules live in your app namespace. SpectreDirective does not ship
+compiled dependencies on SpectreMnemonic, SpectreLens, or SpectreKinetic. That
+boundary is deliberate: imagination on one side, consequences on the other.
