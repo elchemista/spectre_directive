@@ -82,7 +82,7 @@ For an agent-created mission, use `SpectreDirective.create/1`:
 ```
 
 `model` receives SpectreDirective's English planning prompts and returns normal
-text. No planner module is needed. With `mode: :guided`, the planner asks the
+text. With `mode: :guided`, the planner asks the
 model for a strategy, then one step at a time until the model answers
 `Finish: reason`.
 
