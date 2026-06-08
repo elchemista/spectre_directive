@@ -67,7 +67,7 @@ defmodule SpectreDirective.Pulse do
       alignment: alignment,
       risk: current_risk(current, Map.get(state, :capabilities)),
       blocked?: Map.get(state, :status) in [:blocked, :waiting],
-      next_expected_action: next_action(current, alignment),
+      next_expected_action: next_action(Map.get(state, :status), current, alignment),
       controls: controls(Map.get(state, :status)),
       updated_at: DateTime.utc_now()
     }
@@ -92,18 +92,21 @@ defmodule SpectreDirective.Pulse do
   defp current_risk(nil, _capabilities), do: :low
   defp current_risk(step, _capabilities), do: step.risk
 
-  @spec next_action(term(), term()) :: binary()
-  defp next_action(nil, _alignment), do: "Finish or wait for a revised plan."
+  @spec next_action(atom(), term(), term()) :: binary()
+  defp next_action(:planning, nil, _alignment), do: "Continue guided planning."
 
-  defp next_action(step, %{recommendation: recommendation}) do
+  defp next_action(_status, nil, _alignment), do: "Finish or wait for a revised plan."
+
+  defp next_action(_status, step, %{recommendation: recommendation}) do
     "#{recommendation}: #{step.title}"
   end
 
-  defp next_action(step, _alignment), do: step.title
+  defp next_action(_status, step, _alignment), do: step.title
 
   @spec controls(atom()) :: [atom()]
   defp controls(status) when status in [:finished, :stopped, :aborted], do: []
-  defp controls(:paused), do: [:resume, :stop, :revise, :finish_early]
-  defp controls(:waiting), do: [:approve, :reject, :revise, :stop]
-  defp controls(_status), do: [:pause, :stop, :retry, :skip, :revise, :finish_early]
+  defp controls(:planning), do: [:propose, :submit, :accept, :reject, :finish_planning, :stop]
+  defp controls(:paused), do: [:resume, :stop, :revise_plan, :finish_early]
+  defp controls(:waiting), do: [:approve, :reject, :revise_plan, :stop]
+  defp controls(_status), do: [:pause, :stop, :retry, :skip, :revise_plan, :finish_early]
 end

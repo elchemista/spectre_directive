@@ -3,7 +3,9 @@ defmodule SpectreDirective.Runtime.Control do
   Applies human or supervising-agent control actions to a mission.
   """
 
+  alias SpectreDirective.Correction
   alias SpectreDirective.Plan
+  alias SpectreDirective.Runtime.PlanReviser
   alias SpectreDirective.Runtime.State
   alias SpectreDirective.Runtime.StepGate
   alias SpectreDirective.Step
@@ -78,6 +80,27 @@ defmodule SpectreDirective.Runtime.Control do
     |> State.put_context(context)
     |> State.add_trace(:control, "Mission context revised.", context)
     |> StepGate.select_next()
+  end
+
+  def apply_action(%State{} = state, {:revise_plan, correction_attrs})
+      when is_atom(correction_attrs) or is_map(correction_attrs) or is_list(correction_attrs) do
+    correction = Correction.new(correction_attrs, source: :control)
+
+    state
+    |> State.put_status(:running)
+    |> unblock_current_step()
+    |> PlanReviser.apply_revision(correction)
+    |> State.add_trace(:control, "Plan revised by control action.", correction)
+    |> StepGate.select_next()
+  end
+
+  def apply_action(%State{} = state, {:revise_plan, correction_attrs}) do
+    State.add_trace(
+      state,
+      :control_ignored,
+      "Invalid plan revision control ignored.",
+      correction_attrs
+    )
   end
 
   def apply_action(%State{} = state, :retry) do

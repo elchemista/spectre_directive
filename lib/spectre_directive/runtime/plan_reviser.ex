@@ -17,6 +17,7 @@ defmodule SpectreDirective.Runtime.PlanReviser do
   alias SpectreDirective.Impact
   alias SpectreDirective.Observation
   alias SpectreDirective.Plan
+  alias SpectreDirective.Runtime.AlignmentGate
   alias SpectreDirective.Runtime.State
   alias SpectreDirective.Step
 
@@ -25,14 +26,7 @@ defmodule SpectreDirective.Runtime.PlanReviser do
   """
   @spec apply(State.t(), Correction.t(), Observation.t(), Impact.t()) :: State.t()
   def apply(%State{} = state, %Correction{type: :continue}, %Observation{}, %Impact{}) do
-    # Even a "continue" correction still runs post-step alignment against the
-    # next pending step. New knowledge may make that next step useless or risky.
-    alignment =
-      state
-      |> State.to_map()
-      |> Alignment.check(Plan.next_pending(state.plan), :post_step)
-
-    State.put_alignment(state, alignment)
+    align_next_pending(state)
   end
 
   def apply(
@@ -63,6 +57,7 @@ defmodule SpectreDirective.Runtime.PlanReviser do
     correction.changes
     |> correction_step()
     |> add_step(state, correction)
+    |> align_next_pending()
   end
 
   def apply(
@@ -74,10 +69,50 @@ defmodule SpectreDirective.Runtime.PlanReviser do
     correction.changes
     |> matching_text()
     |> remove_matching_steps(state, correction)
+    |> align_next_pending()
   end
 
   def apply(%State{} = state, %Correction{} = correction, %Observation{}, %Impact{}) do
     revise_plan(state, correction)
+    |> align_next_pending()
+  end
+
+  @doc """
+  Applies a direct plan revision supplied by a control action.
+  """
+  @spec apply_revision(State.t(), Correction.t()) :: State.t()
+  def apply_revision(%State{} = state, %Correction{type: :finish_early} = correction) do
+    state
+    |> State.put_status(:finished)
+    |> revise_plan(correction)
+    |> State.add_trace(:correction, "Finished early: #{correction.reason}", correction)
+  end
+
+  def apply_revision(%State{} = state, %Correction{type: :abort} = correction) do
+    state
+    |> State.put_status(:aborted)
+    |> revise_plan(correction)
+    |> State.add_trace(:correction, "Aborted mission: #{correction.reason}", correction)
+  end
+
+  def apply_revision(%State{} = state, %Correction{type: :add_step} = correction) do
+    correction.changes
+    |> correction_step()
+    |> add_step(state, correction)
+    |> align_next_pending()
+  end
+
+  def apply_revision(%State{} = state, %Correction{type: :remove_steps} = correction) do
+    correction.changes
+    |> matching_text()
+    |> remove_matching_steps(state, correction)
+    |> align_next_pending()
+  end
+
+  def apply_revision(%State{} = state, %Correction{} = correction) do
+    state
+    |> revise_plan(correction)
+    |> align_next_pending()
   end
 
   @spec revise_plan(State.t(), Correction.t()) :: State.t()
@@ -110,6 +145,21 @@ defmodule SpectreDirective.Runtime.PlanReviser do
   defp remove_matching_steps(text, state, correction) do
     predicate = fn step -> step_matches_text?(step, text) end
     State.put_plan(state, Plan.remove_matching(state.plan, predicate, correction.reason))
+  end
+
+  @spec align_next_pending(State.t()) :: State.t()
+  defp align_next_pending(%State{status: status} = state)
+       when status in [:finished, :stopped, :aborted, :planning, :paused, :waiting, :blocked] do
+    state
+  end
+
+  defp align_next_pending(%State{} = state) do
+    step = Plan.next_pending(state.plan)
+
+    state
+    |> State.to_map()
+    |> Alignment.check(step, :post_step)
+    |> AlignmentGate.apply(state, step, :post_step)
   end
 
   @spec step_matches_text?(Step.t(), binary()) :: boolean()

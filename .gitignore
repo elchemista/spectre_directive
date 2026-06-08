@@ -14,10 +14,14 @@
 
 /spectre_kinetic/
 /spectre_mnemonic/
-/symphony/
+/mnemonic_data/
 
 # Temporary files, for example, from tests.
 /tmp/
+
+GUIDELINE.md
+SKILL.md
+CONCEPT.md
 
 # If the VM crashes, it generates a dump, let's ignore it too.
 erl_crash.dump

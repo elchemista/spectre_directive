@@ -6,7 +6,15 @@ defmodule SpectreDirective.Mission do
   alias SpectreDirective.ID
 
   @type status ::
-          :draft | :running | :paused | :waiting | :blocked | :finished | :stopped | :aborted
+          :draft
+          | :planning
+          | :running
+          | :paused
+          | :waiting
+          | :blocked
+          | :finished
+          | :stopped
+          | :aborted
 
   @type t :: %__MODULE__{
           id: binary(),

@@ -118,13 +118,6 @@ defmodule SpectreDirective.DSL do
   end
 
   @doc "Adds a strategy preset or primitive strategy."
-  defmacro use(strategy) do
-    quote bind_quoted: [strategy: strategy] do
-      Builder.add_strategy(__MODULE__, strategy)
-    end
-  end
-
-  @doc "Adds a strategy preset or primitive strategy."
   defmacro strategy(strategy) do
     quote bind_quoted: [strategy: strategy] do
       Builder.add_strategy(__MODULE__, strategy)

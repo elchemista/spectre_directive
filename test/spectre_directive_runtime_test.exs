@@ -69,6 +69,98 @@ defmodule SpectreDirectiveRuntimeTest do
     def draft_plan(_request, _opts), do: raise("model unavailable")
   end
 
+  defmodule RuntimeAlignment do
+    @behaviour SpectreDirective.Alignment
+
+    @impl SpectreDirective.Alignment
+    def check_alignment(request, opts) do
+      send(opts[:parent], {:runtime_alignment, request.phase, request.step && request.step.title})
+
+      case request.step && request.step.title do
+        "Skip by model" ->
+          %{
+            status: :misaligned,
+            recommendation: :skip,
+            check: :drift,
+            reason: "Alignment model skipped this step."
+          }
+
+        "Revise by model" ->
+          %{
+            status: :blocked,
+            recommendation: :revise,
+            check: :strategy,
+            reason: "Alignment model wants the plan revised first."
+          }
+
+        _title ->
+          %{
+            status: :aligned,
+            recommendation: :continue,
+            check: :mission_relevance,
+            reason: "Alignment model allowed this step."
+          }
+      end
+    end
+  end
+
+  defmodule PostStepAlignment do
+    @behaviour SpectreDirective.Alignment
+
+    @impl SpectreDirective.Alignment
+    def check_alignment(request, opts) do
+      send(
+        opts[:parent],
+        {:post_step_alignment, request.phase, request.step && request.step.title}
+      )
+
+      recommendation =
+        if request.phase == :post_step do
+          Keyword.fetch!(opts, :post_step_recommendation)
+        else
+          :continue
+        end
+
+      %{
+        status: status_for(recommendation),
+        recommendation: recommendation,
+        check: :strategy,
+        reason: "Post-step alignment chose #{recommendation}."
+      }
+    end
+
+    defp status_for(:continue), do: :aligned
+    defp status_for(:skip), do: :misaligned
+    defp status_for(:pause), do: :risky
+    defp status_for(:ask), do: :blocked
+    defp status_for(:revise), do: :blocked
+    defp status_for(:stop), do: :blocked
+    defp status_for(:finish), do: :complete_enough
+  end
+
+  defmodule ResearchAlignment do
+    @behaviour SpectreDirective.Alignment
+
+    @impl SpectreDirective.Alignment
+    def check_alignment(request, _opts) do
+      if request.step.title =~ "backend" do
+        %{
+          status: :misaligned,
+          recommendation: :skip,
+          check: :drift,
+          reason: "Alignment model judged backend-only work as drift."
+        }
+      else
+        %{
+          status: :aligned,
+          recommendation: :continue,
+          check: :mission_relevance,
+          reason: "Alignment model judged the step relevant."
+        }
+      end
+    end
+  end
+
   defmodule ResearchDirective do
     use SpectreDirective
 
@@ -113,6 +205,7 @@ defmodule SpectreDirectiveRuntimeTest do
                memory_adapter: FakeMemory,
                memory_opts: [parent: self()],
                capability_adapters: [FakeKinetic, FakeLens],
+               alignment: ResearchAlignment,
                parent: self()
              )
 
@@ -251,7 +344,7 @@ defmodule SpectreDirectiveRuntimeTest do
     assert step.title == "Function model observation step"
   end
 
-  test "guided planning asks for strategy, then one step at a time until finish" do
+  test "guided planning is manually driven through OTP calls" do
     parent = self()
     {:ok, counter} = Agent.start_link(fn -> 0 end)
 
@@ -265,7 +358,7 @@ defmodule SpectreDirectiveRuntimeTest do
 
         1 ->
           """
-          Step: Guided observation
+          Step: Rough observation
           kind: observe
           purpose: Inspect the visible signup entry before acting.
           capability: observe_page
@@ -287,32 +380,118 @@ defmodule SpectreDirectiveRuntimeTest do
              SpectreDirective.start_mission("Plan step by step",
                planning_model: model,
                planning_mode: :guided,
-               planning_max_steps: 5
+               capabilities: [
+                 %{name: :observe_page, description: "Observe the current browser page."}
+               ],
+               planning_subscribers: [parent]
              )
 
+    assert {:ok, pulse} = SpectreDirective.pulse(pid)
+    assert pulse.status == :planning
+    assert {:error, :planning_in_progress} = SpectreDirective.next_step(pid)
+
+    assert {:ok, planning} = SpectreDirective.planning_state(pid)
+    assert planning.steps == []
+    assert planning.pending == nil
+
+    assert {:ok, strategy} = SpectreDirective.propose_plan_item(pid)
     assert_receive {:guided_prompt, 0, strategy_prompt}
     assert strategy_prompt =~ "Do not write steps yet"
+    assert strategy.type == :strategy
+    assert strategy.strategy =~ "observe first"
+    assert_receive {:spectre_directive, _mission_id, :planning_proposal, ^strategy}
 
+    assert {:ok, planning} = SpectreDirective.accept_plan_item(pid)
+    assert planning.strategy =~ "observe first"
+
+    assert {:ok, rough_step} = SpectreDirective.propose_plan_item(pid)
     assert_receive {:guided_prompt, 1, first_step_prompt}
     assert first_step_prompt =~ "Generate only step 1"
     assert first_step_prompt =~ "Steps already generated:\n-"
+    assert rough_step.type == :step
+    assert rough_step.step.title == "Rough observation"
 
+    assert {:ok, planning} =
+             SpectreDirective.accept_plan_item(pid, %{
+               type: :step,
+               step: %{
+                 title: "Edited guided observation",
+                 kind: :observe,
+                 purpose: "Inspect the visible signup entry before acting.",
+                 capability: :observe_page
+               }
+             })
+
+    assert Enum.map(planning.steps, & &1.title) == ["Edited guided observation"]
+
+    assert {:ok, second_step} = SpectreDirective.propose_plan_item(pid)
+    assert second_step.step.title == "Guided verification"
+
+    assert {:ok, planning} =
+             SpectreDirective.reject_plan_item(pid, "Need a smaller verification.")
+
+    assert planning.feedback == ["Need a smaller verification."]
+
+    assert {:ok, finish} = SpectreDirective.propose_plan_item(pid)
     assert_receive {:guided_prompt, 2, second_step_prompt}
     assert second_step_prompt =~ "Generate only step 2"
-    assert second_step_prompt =~ "Guided observation"
-
+    assert second_step_prompt =~ "Edited guided observation"
     assert_receive {:guided_prompt, 3, finish_prompt}
-    assert finish_prompt =~ "Generate only step 3"
-    assert finish_prompt =~ "Guided verification"
+    assert finish_prompt =~ "Need a smaller verification."
+    assert finish.type == :finish
+    assert {:ok, _planning} = SpectreDirective.accept_plan_item(pid)
 
+    assert {:ok, pulse} = SpectreDirective.finish_planning(pid)
+    assert pulse.status == :running
+    assert pulse.current_step.title == "Edited guided observation"
     assert {:ok, plan} = SpectreDirective.plan(pid)
-    assert Enum.map(plan.steps, & &1.title) == ["Guided observation", "Guided verification"]
+    assert Enum.map(plan.steps, & &1.title) == ["Edited guided observation"]
 
     assert {:ok, trace} = SpectreDirective.trace(pid)
     assert Enum.any?(trace, &(&1.type == :planned and &1.data.mode == :guided))
   end
 
-  test "create starts a guided mission from one simple agent map" do
+  test "external processes can submit guided planning items" do
+    parent = self()
+
+    assert {:ok, pid} =
+             SpectreDirective.start_mission("Plan from another process",
+               planning_mode: :guided,
+               planning_subscribers: [parent]
+             )
+
+    assert {:ok, strategy} =
+             SpectreDirective.submit_plan_item(pid, %{
+               type: :strategy,
+               strategy: "Let a supervising process build the plan."
+             })
+
+    assert strategy.type == :strategy
+    assert_receive {:spectre_directive, _mission_id, :planning_proposal, ^strategy}
+
+    assert {:ok, planning} = SpectreDirective.accept_plan_item(pid)
+    assert planning.strategy =~ "supervising process"
+
+    assert {:ok, step} =
+             SpectreDirective.submit_plan_item(pid, %{
+               type: :step,
+               step: %{
+                 title: "Externally proposed step",
+                 kind: :investigate,
+                 purpose: "Use an external process proposal."
+               }
+             })
+
+    assert step.step.title == "Externally proposed step"
+    assert {:ok, planning} = SpectreDirective.accept_plan_item(pid)
+    assert Enum.map(planning.steps, & &1.title) == ["Externally proposed step"]
+
+    assert {:ok, pulse} = SpectreDirective.finish_planning(pid, "External process approved plan.")
+    assert pulse.status == :running
+    assert pulse.current_step.title == "Externally proposed step"
+  end
+
+  test "create starts a manually guided mission from one simple agent map" do
     parent = self()
     {:ok, counter} = Agent.start_link(fn -> 0 end)
 
@@ -349,16 +528,29 @@ defmodule SpectreDirectiveRuntimeTest do
                model: model
              })
 
+    assert {:ok, pulse} = SpectreDirective.pulse(pid)
+    assert pulse.status == :planning
+
+    assert {:ok, strategy} = SpectreDirective.propose_plan_item(pid)
     assert_receive {:create_prompt, 0, strategy_prompt}
     assert strategy_prompt =~ "Make sure a new user can finish sign up"
     assert strategy_prompt =~ "observe_page"
+    assert strategy.type == :strategy
+    assert {:ok, _planning} = SpectreDirective.accept_plan_item(pid)
 
+    assert {:ok, step_proposal} = SpectreDirective.propose_plan_item(pid)
     assert_receive {:create_prompt, 1, step_prompt}
     assert step_prompt =~ "Generate only step 1"
+    assert step_proposal.step.title == "Observe signup page"
+    assert {:ok, _planning} = SpectreDirective.accept_plan_item(pid)
 
+    assert {:ok, finish} = SpectreDirective.propose_plan_item(pid)
     assert_receive {:create_prompt, 2, finish_prompt}
     assert finish_prompt =~ "Observe signup page"
+    assert finish.type == :finish
+    assert {:ok, _planning} = SpectreDirective.accept_plan_item(pid)
 
+    assert {:ok, _pulse} = SpectreDirective.finish_planning(pid)
     assert {:ok, step} = SpectreDirective.next_step(pid)
     assert step.title == "Observe signup page"
     assert step.required_capability == "observe_page"
@@ -418,6 +610,196 @@ defmodule SpectreDirectiveRuntimeTest do
     assert awaited.status == :stopped
   end
 
+  test "runtime uses custom alignment module to control step selection" do
+    steps = [
+      Step.new("Skip by model", kind: :investigate, purpose: "Model should skip this."),
+      Step.new("Continue by model", kind: :observe, purpose: "Model should allow this."),
+      Step.new("Revise by model", kind: :act, purpose: "Model should request revision.")
+    ]
+
+    assert {:ok, pid} =
+             SpectreDirective.start_mission("Run with model alignment",
+               steps: steps,
+               alignment: RuntimeAlignment,
+               parent: self()
+             )
+
+    assert_receive {:runtime_alignment, :pre_step, "Skip by model"}
+    assert_receive {:runtime_alignment, :pre_step, "Continue by model"}
+
+    assert {:ok, pulse} = SpectreDirective.pulse(pid)
+    assert pulse.status == :running
+    assert pulse.current_step.title == "Continue by model"
+
+    assert {:ok, pulse} =
+             SpectreDirective.complete_step(pid, %{
+               summary: "Allowed step completed."
+             })
+
+    assert_receive {:runtime_alignment, :post_step, "Revise by model"}
+    assert pulse.status == :blocked
+    assert pulse.current_step == nil
+    assert pulse.alignment.recommendation == :revise
+
+    assert {:ok, trace} = SpectreDirective.trace(pid)
+    assert Enum.any?(trace, &(&1.message =~ "Skipped misaligned step: Skip by model"))
+    assert Enum.any?(trace, &(&1.message =~ "Alignment requested plan revision"))
+  end
+
+  test "post-step alignment recommendations actively update mission state" do
+    cases = [
+      {:continue, :running, "Second"},
+      {:skip, :running, "Third"},
+      {:pause, :waiting, nil},
+      {:ask, :blocked, nil},
+      {:revise, :blocked, nil},
+      {:stop, :stopped, nil},
+      {:finish, :finished, nil}
+    ]
+
+    Enum.each(cases, fn {recommendation, expected_status, expected_current_title} ->
+      steps = [
+        Step.new("First", kind: :observe, purpose: "Complete first."),
+        Step.new("Second", kind: :verify, purpose: "Post-step alignment targets this."),
+        Step.new("Third", kind: :summarize, purpose: "Used after skip.")
+      ]
+
+      assert {:ok, pid} =
+               SpectreDirective.start_mission("Post-step #{recommendation}",
+                 steps: steps,
+                 alignment: PostStepAlignment,
+                 post_step_recommendation: recommendation,
+                 parent: self()
+               )
+
+      assert_receive {:post_step_alignment, :pre_step, "First"}
+
+      assert {:ok, pulse} =
+               SpectreDirective.complete_step(pid, %{
+                 summary: "First step completed."
+               })
+
+      assert_receive {:post_step_alignment, :post_step, "Second"}
+      assert pulse.status == expected_status, "recommendation: #{recommendation}"
+
+      if expected_current_title do
+        assert pulse.current_step.title == expected_current_title
+      else
+        assert pulse.current_step == nil
+      end
+
+      assert {:ok, trace} = SpectreDirective.trace(pid)
+
+      expected_trace_type =
+        case recommendation do
+          :continue -> :step_started
+          :skip -> :correction
+          :pause -> :waiting
+          :ask -> :blocked
+          :revise -> :blocked
+          :stop -> :stopped
+          :finish -> :finished
+        end
+
+      assert Enum.any?(trace, &(&1.type == expected_trace_type))
+    end)
+  end
+
+  test "host loop can inspect capabilities, handle revise block, patch the living plan, and resume" do
+    steps = [
+      Step.new("Continue by model", kind: :observe, purpose: "Allowed first step."),
+      Step.new("Revise by model", kind: :act, purpose: "Blocked until reviewer revises."),
+      Step.new("Final by model", kind: :verify, purpose: "Continue after correction.")
+    ]
+
+    assert {:ok, pid} =
+             SpectreDirective.start_mission("Host-driven loop",
+               steps: steps,
+               capability_adapters: [FakeLens],
+               alignment: RuntimeAlignment,
+               parent: self()
+             )
+
+    assert_receive :lens_discovered
+
+    assert {:ok, capabilities} = SpectreDirective.capabilities(pid)
+    assert Enum.any?(capabilities.capabilities, &(&1.name == :observe_page))
+
+    assert {:ok, pulse} = SpectreDirective.pulse(pid)
+    assert pulse.current_step.title == "Continue by model"
+
+    assert {:ok, blocked} =
+             SpectreDirective.complete_step(pid, %{
+               summary: "First host-executed step completed."
+             })
+
+    assert_receive {:runtime_alignment, :post_step, "Revise by model"}
+    assert blocked.status == :blocked
+    assert :revise_plan in blocked.controls
+
+    assert {:ok, resumed} =
+             SpectreDirective.control(pid, {
+               :revise_plan,
+               %{
+                 type: :remove_steps,
+                 strategy: :strategic,
+                 reason: "Reviewer removed the blocked step from the living plan.",
+                 changes: %{matching: "Revise by model"}
+               }
+             })
+
+    assert resumed.status == :running
+    assert resumed.current_step.title == "Final by model"
+
+    assert {:ok, final} =
+             SpectreDirective.complete_step(pid, %{
+               summary: "Final step completed.",
+               decisions: ["finish early because final verification is enough"]
+             })
+
+    assert final.status == :finished
+
+    assert {:ok, plan} = SpectreDirective.plan(pid)
+    refute Enum.any?(plan.steps, &(&1.title == "Revise by model"))
+  end
+
+  test "mock executor runs steps and lets corrections revise the plan" do
+    steps = [
+      Step.new("Check signup entry",
+        kind: :observe,
+        purpose: "Inspect the signup entry before acting.",
+        expected_output: "Signup entry evidence.",
+        done_condition: "A blocker or success state is identified."
+      )
+    ]
+
+    assert {:ok, pid} =
+             SpectreDirective.start_mission("Execute signup plan with mock model",
+               steps: steps,
+               capability_adapters: []
+             )
+
+    assert run_mock_executor(pid, self()) == ["Check signup entry", "Inspect signup blocker"]
+
+    assert_receive {:mock_asserted, "Check signup entry",
+                    "A blocker or success state is identified."}
+
+    assert_receive {:mock_asserted, "Inspect signup blocker", "The blocker is understood."}
+
+    assert {:ok, pulse} = SpectreDirective.pulse(pid)
+    assert pulse.status == :finished
+    assert pulse.current_understanding =~ "Email verification blocks signup completion."
+
+    assert {:ok, plan} = SpectreDirective.plan(pid)
+    assert plan.version == 3
+    assert Enum.map(plan.steps, & &1.title) == ["Check signup entry", "Inspect signup blocker"]
+
+    assert Enum.map(plan.revision_history, & &1.reason) == [
+             "Signup entry exposed a blocker.",
+             "Blocker understood well enough to finish."
+           ]
+  end
+
   test "risky steps wait for approval" do
     steps = [
       Step.new("Publish change", kind: :act, risk: :high, purpose: "External user-visible action")
@@ -439,5 +821,63 @@ defmodule SpectreDirectiveRuntimeTest do
     assert {:ok, approved} = SpectreDirective.control(pid, :approve)
     assert approved.status == :running
     assert approved.current_step.title == "Publish change"
+  end
+
+  defp run_mock_executor(pid, parent, executed \\ []) do
+    case SpectreDirective.pulse(pid) do
+      {:ok, %{status: status}} when status in [:finished, :stopped, :aborted] ->
+        Enum.reverse(executed)
+
+      {:ok, _pulse} ->
+        {:ok, step} = SpectreDirective.next_step(pid)
+        observation = mock_model_observation(step, parent)
+        {:ok, _pulse} = SpectreDirective.complete_step(pid, observation)
+        run_mock_executor(pid, parent, [step.title | executed])
+    end
+  end
+
+  defp mock_model_observation(%Step{title: "Check signup entry"} = step, parent) do
+    assert_step_contract!(step, "A blocker or success state is identified.", parent)
+
+    %{
+      summary: "Signup entry is visible but email verification blocks completion.",
+      evidence: ["Verification banner is visible after signup submit."],
+      mission_relevant_facts: ["Email verification blocks signup completion."],
+      correction: %{
+        type: :add_step,
+        strategy: :tactical,
+        reason: "Signup entry exposed a blocker.",
+        changes: %{
+          step: %{
+            title: "Inspect signup blocker",
+            kind: :investigate,
+            purpose: "Understand the email verification blocker before finishing.",
+            expected_output: "Verification blocker details.",
+            done_condition: "The blocker is understood."
+          }
+        }
+      }
+    }
+  end
+
+  defp mock_model_observation(%Step{title: "Inspect signup blocker"} = step, parent) do
+    assert_step_contract!(step, "The blocker is understood.", parent)
+
+    %{
+      summary: "The blocker is email verification, not form validation.",
+      evidence: ["Verification email requirement appears after submit."],
+      mission_relevant_facts: ["Signup can proceed only after email verification."],
+      decisions: ["finish early because the blocker is understood"],
+      correction: %{
+        type: :finish_early,
+        strategy: :confidence,
+        reason: "Blocker understood well enough to finish."
+      }
+    }
+  end
+
+  defp assert_step_contract!(%Step{} = step, done_condition, parent) do
+    assert step.done_condition == done_condition
+    send(parent, {:mock_asserted, step.title, step.done_condition})
   end
 end

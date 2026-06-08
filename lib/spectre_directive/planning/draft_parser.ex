@@ -35,7 +35,7 @@ defmodule SpectreDirective.Planning.DraftParser do
 
   @step_start ~r/^\s*(?:#+\s*)?(?:[-*]\s*)?(?:(?:\d+\s*[\).:-])|(?:step(?:\s+\d+)?\s*[:\-.]))\s*(.+)$/i
   @field ~r/^\s*(?:[-*]\s*)?[\*_`]*([a-zA-Z][a-zA-Z _-]*)[\*_`]*\s*:[\*_`]*\s*(.+)$/
-  @finish ~r/^\s*(?:finish|finished|done|no more steps)\b\s*:?\s*(.*)$/im
+  @finish ~r/^\s*(?:finish|finished|no more steps)\b\s*:?\s*(.*)$/im
 
   @kind_values %{
     "remember" => :remember,
@@ -177,6 +177,7 @@ defmodule SpectreDirective.Planning.DraftParser do
   defp known_field("expects"), do: :expected_output
   defp known_field("expect"), do: :expected_output
   defp known_field("done"), do: :done_condition
+  defp known_field("done_when"), do: :done_condition
   defp known_field("done_condition"), do: :done_condition
   defp known_field("capability"), do: :required_capability
   defp known_field("required_capability"), do: :required_capability

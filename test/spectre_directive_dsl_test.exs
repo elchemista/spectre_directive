@@ -1,5 +1,6 @@
 defmodule SpectreDirectiveDSLTest do
   use ExUnit.Case
+  import ExUnit.CaptureIO
 
   defmodule SignupDirective do
     use SpectreDirective
@@ -23,8 +24,8 @@ defmodule SpectreDirectiveDSLTest do
       end
 
       strategies do
-        use :qa_flow
-        use :safe_operator
+        strategy(:qa_flow)
+        strategy(:safe_operator)
       end
 
       alignment do
@@ -76,6 +77,219 @@ defmodule SpectreDirectiveDSLTest do
              SignupDirective.__spectre_directive__("signup-check")
   end
 
+  test "multiple directives keep authored state isolated" do
+    defmodule MultiDirective do
+      use SpectreDirective
+
+      directive "first" do
+        mission("Run first directive.")
+        context("First context.")
+        success("First success.")
+
+        memory do
+          scope(:first_scope)
+        end
+
+        capabilities do
+          allow([:observe_page, :screenshot])
+        end
+
+        strategies do
+          strategy(:qa_flow)
+        end
+
+        step "First step" do
+          kind(:observe)
+          purpose("Observe the first directive.")
+        end
+      end
+
+      directive "second" do
+        mission("Run second directive.")
+        context("Second context.")
+        success("Second success.")
+        mode(:strict)
+
+        capabilities do
+          require_capability(:inspect_repository)
+          deny(:real_payment)
+        end
+
+        strategies do
+          strategy(:focused_research)
+        end
+
+        step "Second step" do
+          kind(:investigate)
+          purpose("Investigate the second directive.")
+        end
+      end
+    end
+
+    [first, second] = MultiDirective.__spectre_directives__()
+
+    assert first.name == "first"
+    assert first.mode == :guided
+    assert first.memory.scope == [:first_scope]
+    assert first.capability_rules.allowed == [:observe_page, :screenshot]
+    assert first.capability_rules.required == []
+    assert first.capability_rules.denied == []
+    assert first.strategies == [:qa_flow]
+    assert Enum.map(first.plan.steps, & &1.title) == ["First step"]
+
+    assert second.name == "second"
+    assert second.mode == :strict
+    assert second.memory == %{}
+    assert second.capability_rules.allowed == []
+    assert second.capability_rules.required == [:inspect_repository]
+    assert second.capability_rules.denied == [:real_payment]
+    assert second.strategies == [:focused_research]
+    assert Enum.map(second.plan.steps, & &1.title) == ["Second step"]
+  end
+
+  test "step DSL captures optional fields and default values" do
+    defmodule RichStepDirective do
+      use SpectreDirective
+
+      directive "rich-step" do
+        mission("Run rich step directive.")
+        context("Capture all step fields.")
+        success("The step compiles with structured metadata.")
+
+        step "Inspect signup state" do
+          kind(:act)
+          flexibility(:agentic)
+          purpose("Exercise the rich ADSL step surface.")
+          reason("The current state is unknown.")
+          prompt("Open the page and inspect visible blockers.")
+          expects("A visible state report.")
+          done_when("A blocker or success state is identified.")
+          risk(:high)
+          capability(:observe_page)
+          input(%{path: "/signup"})
+          metadata(%{area: :signup, owner: "qa"})
+        end
+      end
+    end
+
+    [directive] = RichStepDirective.__spectre_directives__()
+    [step] = directive.plan.steps
+
+    assert step.title == "Inspect signup state"
+    assert step.kind == :act
+    assert step.flexibility == :agentic
+    assert step.purpose == "Exercise the rich ADSL step surface."
+    assert step.reason == "The current state is unknown."
+    assert step.prompt == "Open the page and inspect visible blockers."
+    assert step.expected_output == "A visible state report."
+    assert step.done_condition == "A blocker or success state is identified."
+    assert step.risk == :high
+    assert step.required_capability == :observe_page
+    assert step.input == %{path: "/signup"}
+    assert step.metadata == %{area: :signup, owner: "qa"}
+    assert step.source == :authored
+    assert step.status == :pending
+  end
+
+  test "capability declarations deduplicate list and repeated values" do
+    defmodule DedupedCapabilitiesDirective do
+      use SpectreDirective
+
+      directive "deduped-capabilities" do
+        mission("Run deduped capability directive.")
+        context("Capabilities may be declared in lists or one at a time.")
+        success("Capability rules are stable.")
+
+        capabilities do
+          require_capability([:observe_page, :observe_page])
+          require_capability(:inspect_repository)
+          allow([:observe_page, :screenshot])
+          allow(:screenshot)
+          deny([:real_payment, :real_payment])
+        end
+
+        step "Observe" do
+          purpose("Observe the entry point.")
+        end
+      end
+    end
+
+    [directive] = DedupedCapabilitiesDirective.__spectre_directives__()
+
+    assert directive.capability_rules.required == [:observe_page, :inspect_repository]
+    assert directive.capability_rules.allowed == [:observe_page, :screenshot]
+    assert directive.capability_rules.denied == [:real_payment]
+  end
+
+  test "strategy DSL does not shadow normal Kernel use" do
+    defmodule NormalKernelUse do
+      defmacro __using__(_opts) do
+        quote do
+          def injected_from_kernel_use, do: :ok
+        end
+      end
+    end
+
+    defmodule KernelUseDirective do
+      use SpectreDirective
+      use NormalKernelUse
+
+      directive "kernel-use" do
+        mission("Check normal use.")
+        context("Kernel use should still work.")
+        success("The module compiles.")
+
+        strategies do
+          strategy(:qa_flow)
+        end
+
+        step "Observe" do
+          purpose("Observe the entry point.")
+        end
+      end
+    end
+
+    assert KernelUseDirective.injected_from_kernel_use() == :ok
+    assert [%{strategies: [:qa_flow]}] = KernelUseDirective.__spectre_directives__()
+  end
+
+  test "use is no longer accepted as strategy syntax" do
+    module =
+      Module.concat(
+        __MODULE__,
+        :"RemovedUseStrategyDirective#{System.unique_integer([:positive])}"
+      )
+
+    stderr =
+      capture_io(:stderr, fn ->
+        assert_raise CompileError, fn ->
+          Code.compile_quoted(
+            quote do
+              defmodule unquote(module) do
+                use SpectreDirective
+
+                directive "removed-use-strategy" do
+                  mission("Check signup.")
+                  context("Release check.")
+                  success("Signup succeeds.")
+
+                  strategies do
+                    use :qa_flow
+                  end
+
+                  step "Observe" do
+                    purpose("Observe the entry point.")
+                  end
+                end
+              end
+            end
+          )
+        end
+      end)
+
+    assert stderr =~ "module :qa_flow is not loaded"
+  end
+
   test "directive compilation requires mission text" do
     assert_raise ArgumentError, ~r/mission\/1 is required/, fn ->
       defmodule MissingMissionDirective do
@@ -91,6 +305,26 @@ defmodule SpectreDirectiveDSLTest do
         end
       end
     end
+  end
+
+  test "directive compilation rejects blank required text" do
+    assert_raise ArgumentError,
+                 ~r/mission\/1 is required; context\/1 is required; success\/1 is required/,
+                 fn ->
+                   defmodule BlankRequiredTextDirective do
+                     use SpectreDirective
+
+                     directive "blank-required-text" do
+                       mission("  ")
+                       context("")
+                       success("\n")
+
+                       step "Observe" do
+                         purpose("Observe the entry point.")
+                       end
+                     end
+                   end
+                 end
   end
 
   test "directive compilation requires context and success text" do
@@ -135,6 +369,24 @@ defmodule SpectreDirectiveDSLTest do
 
           step "Observe" do
             kind(:observe)
+          end
+        end
+      end
+    end
+  end
+
+  test "step compilation rejects blank purpose" do
+    assert_raise ArgumentError, ~r/purpose\/1 is required/, fn ->
+      defmodule BlankStepPurposeDirective do
+        use SpectreDirective
+
+        directive "blank-step-purpose" do
+          mission("Check signup.")
+          context("Release check.")
+          success("Signup succeeds.")
+
+          step "Observe" do
+            purpose("  ")
           end
         end
       end

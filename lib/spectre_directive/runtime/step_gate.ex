@@ -14,13 +14,13 @@ defmodule SpectreDirective.Runtime.StepGate do
   """
 
   alias SpectreDirective.Alignment
-  alias SpectreDirective.Alignment.Result
   alias SpectreDirective.Plan
+  alias SpectreDirective.Runtime.AlignmentGate
   alias SpectreDirective.Runtime.State
   alias SpectreDirective.Step
 
   @terminal_statuses [:finished, :stopped, :aborted]
-  @non_selecting_statuses [:paused, :waiting, :blocked]
+  @non_selecting_statuses [:planning, :paused, :waiting, :blocked]
 
   @doc """
   Selects the next pending step unless the mission cannot advance.
@@ -50,51 +50,6 @@ defmodule SpectreDirective.Runtime.StepGate do
     state
     |> State.to_map()
     |> Alignment.check(step, :pre_step)
-    |> apply_alignment(state, step)
-  end
-
-  @spec apply_alignment(Result.t(), State.t(), Step.t()) :: State.t()
-  defp apply_alignment(%Result{recommendation: :continue} = alignment, state, step) do
-    state
-    |> State.put_alignment(alignment)
-    |> State.start_step(step)
-    |> State.add_trace(:step_started, "Started step: #{step.title}", %{step_id: step.id})
-  end
-
-  defp apply_alignment(%Result{recommendation: :skip} = alignment, state, step) do
-    skipped = %{step | status: :skipped, result: alignment.reason}
-
-    state
-    |> State.put_alignment(alignment)
-    |> State.put_step(skipped)
-    |> State.add_trace(:correction, "Skipped misaligned step: #{step.title}", alignment)
-    |> select_next()
-  end
-
-  defp apply_alignment(%Result{recommendation: :pause} = alignment, state, step) do
-    blocked = %{step | status: :blocked, result: alignment.reason}
-
-    state
-    |> State.put_alignment(alignment)
-    |> State.put_status(:waiting)
-    |> State.put_step(blocked)
-    |> State.add_trace(:waiting, "Paused before risky step: #{step.title}", alignment)
-  end
-
-  defp apply_alignment(%Result{recommendation: :ask} = alignment, state, step) do
-    blocked = %{step | status: :blocked, result: alignment.reason}
-
-    state
-    |> State.put_alignment(alignment)
-    |> State.put_status(:blocked)
-    |> State.put_step(blocked)
-    |> State.add_trace(:blocked, "Blocked before step: #{step.title}", alignment)
-  end
-
-  defp apply_alignment(%Result{recommendation: :finish} = alignment, state, _step) do
-    state
-    |> State.put_alignment(alignment)
-    |> State.put_status(:finished)
-    |> State.add_trace(:finished, "Finished early: #{alignment.reason}", alignment)
+    |> AlignmentGate.apply(state, step, :pre_step)
   end
 end

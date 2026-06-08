@@ -64,21 +64,23 @@ defmodule SpectreDirective do
 
   ## AI model connection
 
-  SpectreDirective does not depend on a model SDK. A host application connects a
-  model in two places:
+  SpectreDirective does not depend on a model SDK. A host application connects
+  model-backed intelligence in three places:
 
     * initial planning through `create(%{model: &MyApp.Model.complete/1})`, or a
       richer `SpectreDirective.Planner` module when the app needs one
+    * alignment through a module that implements `SpectreDirective.Alignment`
+      and is passed as `alignment: MyApp.Alignment`
     * step execution through an agent loop around the public API
 
   A planning model receives an English prompt and returns English planning text.
   With `planning_mode: :draft`, the model writes the whole initial plan. With
-  `planning_mode: :guided`, SpectreDirective asks for strategy first and then
-  one next step at a time. The model does not need to emit JSON or host-language
-  maps.
+  `planning_mode: :guided`, the mission starts in manual guided planning and
+  waits for explicit proposal, accept, reject, and finish calls. The model does
+  not need to emit JSON or host-language maps.
 
     * call `next_step/1`
-    * send the mission pulse, knowledge, and step to the model
+    * send the mission pulse, knowledge, capabilities, and step to the model
     * let the model use host-application tools
     * call `complete_step/2` with an observation map
 
@@ -95,7 +97,6 @@ defmodule SpectreDirective do
     quote do
       alias SpectreDirective.DSL.Builder
 
-      import Kernel, except: [use: 1, use: 2]
       import SpectreDirective.DSL
 
       @before_compile SpectreDirective.DSL
@@ -201,6 +202,35 @@ defmodule SpectreDirective do
   @spec knowledge(pid() | binary()) :: {:ok, SpectreDirective.Knowledge.t()} | {:error, term()}
   defdelegate knowledge(ref), to: MissionProcesses
 
+  @doc "Returns the discovered and authored capability snapshot."
+  @spec capabilities(pid() | binary()) ::
+          {:ok, SpectreDirective.CapabilitySnapshot.t()} | {:error, term()}
+  defdelegate capabilities(ref), to: MissionProcesses
+
+  @doc "Returns the current guided planning state."
+  @spec planning_state(pid() | binary()) :: {:ok, term()} | {:error, term()}
+  defdelegate planning_state(ref), to: MissionProcesses
+
+  @doc "Asks the configured planner/model for one guided planning proposal."
+  @spec propose_plan_item(pid() | binary(), keyword()) :: {:ok, term()} | {:error, term()}
+  defdelegate propose_plan_item(ref, opts \\ []), to: MissionProcesses
+
+  @doc "Submits a guided planning proposal from an external process."
+  @spec submit_plan_item(pid() | binary(), term()) :: {:ok, term()} | {:error, term()}
+  defdelegate submit_plan_item(ref, proposal), to: MissionProcesses
+
+  @doc "Accepts the pending guided planning proposal, optionally with edits."
+  @spec accept_plan_item(pid() | binary(), term()) :: {:ok, term()} | {:error, term()}
+  defdelegate accept_plan_item(ref, item_or_edit \\ :pending), to: MissionProcesses
+
+  @doc "Rejects the pending guided planning proposal and records feedback."
+  @spec reject_plan_item(pid() | binary(), term()) :: {:ok, term()} | {:error, term()}
+  defdelegate reject_plan_item(ref, reason), to: MissionProcesses
+
+  @doc "Finishes guided planning and starts normal mission execution."
+  @spec finish_planning(pid() | binary(), term()) :: {:ok, Pulse.t()} | {:error, term()}
+  defdelegate finish_planning(ref, reason \\ nil), to: MissionProcesses
+
   @doc "Returns the current step, selecting one if needed."
   @spec next_step(pid() | binary()) :: {:ok, SpectreDirective.Step.t() | nil} | {:error, term()}
   defdelegate next_step(ref), to: MissionProcesses
@@ -288,12 +318,13 @@ defmodule SpectreDirective do
       mode: directive_mode(attrs),
       planning_mode: planning_mode(attrs),
       planning_model: planning_model(attrs),
-      planning_max_steps: attr(attrs, :planning_max_steps),
+      planning_subscribers: attr(attrs, :planning_subscribers, []),
       capabilities: attr(attrs, :capabilities, []),
       capability_adapters: attr(attrs, :capability_adapters, []),
       memory_adapter: attr(attrs, :memory_adapter),
       memory_opts: attr(attrs, :memory_opts, []),
       planner: attr(attrs, :planner),
+      alignment: attr(attrs, :alignment),
       strategies: attr(attrs, :strategies),
       steps: attr(attrs, :steps),
       name: attr(attrs, :name),

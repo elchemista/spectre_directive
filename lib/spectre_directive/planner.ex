@@ -32,8 +32,8 @@ defmodule SpectreDirective.Planner do
   Planning can run in two modes:
 
     * `planning_mode: :draft` asks for the whole initial plan in one call.
-    * `planning_mode: :guided` asks for a strategy, then one next step at a time
-      until the model says `Finish: reason`.
+    * `planning_mode: :guided` is manual and OTP-driven; the runtime waits for
+      explicit proposal, accept, reject, and finish calls.
 
   The model may answer in a small text shape:
 
@@ -60,7 +60,6 @@ defmodule SpectreDirective.Planner do
   alias SpectreDirective.MissionBlueprint
   alias SpectreDirective.Plan
   alias SpectreDirective.Planning.DraftParser
-  alias SpectreDirective.Planning.Guided
   alias SpectreDirective.Planning.Request
   alias SpectreDirective.Planning.TextProvider
 
@@ -111,7 +110,7 @@ defmodule SpectreDirective.Planner do
 
   defp build_with_provider(provider, blueprint, knowledge, capabilities, opts) do
     case planning_mode(opts) do
-      :guided -> build_guided(provider, blueprint, knowledge, capabilities, opts)
+      :guided -> manual_guided(blueprint)
       :draft -> build_draft(provider, blueprint, knowledge, capabilities, opts)
       mode -> fallback(blueprint, :invalid_planning_mode, mode)
     end
@@ -133,20 +132,6 @@ defmodule SpectreDirective.Planner do
     provider
     |> TextProvider.call(request, opts)
     |> parse_draft(provider, blueprint)
-  end
-
-  @spec build_guided(
-          TextProvider.provider(),
-          MissionBlueprint.t(),
-          Knowledge.t(),
-          CapabilitySnapshot.t(),
-          keyword()
-        ) :: build_result()
-  defp build_guided(provider, blueprint, knowledge, capabilities, opts) do
-    case Guided.build(provider, blueprint, knowledge, capabilities, opts) do
-      {:ok, plan, trace} -> %{plan: plan, trace: trace}
-      {:error, reason} -> fallback(blueprint, :guided_planning_error, reason)
-    end
   end
 
   @spec parse_draft(draft_result(), TextProvider.provider(), MissionBlueprint.t()) ::
@@ -181,6 +166,17 @@ defmodule SpectreDirective.Planner do
            draft: draft,
            steps: Enum.map(plan.steps, & &1.title)
          }}
+      ]
+    }
+  end
+
+  @spec manual_guided(MissionBlueprint.t()) :: build_result()
+  defp manual_guided(%MissionBlueprint{} = blueprint) do
+    %{
+      plan: blueprint.plan,
+      trace: [
+        {:planning_started, "Manual guided planning must be driven through the runtime API.",
+         %{mode: :guided}}
       ]
     }
   end

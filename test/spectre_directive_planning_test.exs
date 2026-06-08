@@ -112,10 +112,22 @@ defmodule SpectreDirectivePlanningTest do
              Step: Ask for test credentials
              kind: ask
              purpose: Avoid unsafe real account usage.
+             done: The credential constraint is known.
              """)
 
     assert step.title == "Ask for test credentials"
     assert step.kind == :ask
+    assert step.done_condition == "The credential constraint is known."
+
+    assert {:ok, step_with_done_when} =
+             DraftParser.parse_next_step("""
+             Step: Verify signup state
+             kind: verify
+             purpose: Decide whether signup has enough evidence.
+             done_when: The signup state is known.
+             """)
+
+    assert step_with_done_when.done_condition == "The signup state is known."
 
     assert {:finish, "enough steps exist"} =
              DraftParser.parse_next_step("Finish: enough steps exist")

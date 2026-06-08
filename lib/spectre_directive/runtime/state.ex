@@ -7,6 +7,7 @@ defmodule SpectreDirective.Runtime.State do
   alias SpectreDirective.Knowledge
   alias SpectreDirective.MissionBlueprint
   alias SpectreDirective.Plan
+  alias SpectreDirective.Planning.Session
   alias SpectreDirective.Pulse
   alias SpectreDirective.Step
   alias SpectreDirective.Trace.Entry
@@ -18,6 +19,7 @@ defmodule SpectreDirective.Runtime.State do
           plan: Plan.t(),
           trace: [Entry.t()],
           pulse: Pulse.t() | nil,
+          planning: Session.t() | nil,
           status: atom(),
           last_alignment: term(),
           approvals: MapSet.t(binary()),
@@ -29,6 +31,7 @@ defmodule SpectreDirective.Runtime.State do
     :knowledge,
     :capabilities,
     :plan,
+    :planning,
     :pulse,
     :last_alignment,
     status: :running,

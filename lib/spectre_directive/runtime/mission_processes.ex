@@ -58,6 +58,50 @@ defmodule SpectreDirective.Runtime.MissionProcesses do
   def knowledge(ref), do: call(ref, :knowledge)
 
   @doc """
+  Returns the discovered and authored capability snapshot.
+  """
+  @spec capabilities(pid() | binary()) ::
+          {:ok, SpectreDirective.CapabilitySnapshot.t()} | {:error, term()}
+  def capabilities(ref), do: call(ref, :capabilities)
+
+  @doc """
+  Returns the current manual guided planning state.
+  """
+  @spec planning_state(pid() | binary()) :: {:ok, term()} | {:error, term()}
+  def planning_state(ref), do: call(ref, :planning_state)
+
+  @doc """
+  Asks the configured planner/model for one manual guided planning item.
+  """
+  @spec propose_plan_item(pid() | binary(), keyword()) :: {:ok, term()} | {:error, term()}
+  def propose_plan_item(ref, opts \\ []), do: call(ref, {:propose_plan_item, opts})
+
+  @doc """
+  Submits a manual guided planning item from an external process.
+  """
+  @spec submit_plan_item(pid() | binary(), term()) :: {:ok, term()} | {:error, term()}
+  def submit_plan_item(ref, proposal), do: call(ref, {:submit_plan_item, proposal})
+
+  @doc """
+  Accepts the pending manual guided planning item, optionally with edits.
+  """
+  @spec accept_plan_item(pid() | binary(), term()) :: {:ok, term()} | {:error, term()}
+  def accept_plan_item(ref, item_or_edit \\ :pending),
+    do: call(ref, {:accept_plan_item, item_or_edit})
+
+  @doc """
+  Rejects the pending manual guided planning item.
+  """
+  @spec reject_plan_item(pid() | binary(), term()) :: {:ok, term()} | {:error, term()}
+  def reject_plan_item(ref, reason), do: call(ref, {:reject_plan_item, reason})
+
+  @doc """
+  Finishes manual guided planning and starts execution.
+  """
+  @spec finish_planning(pid() | binary(), term()) :: {:ok, Pulse.t()} | {:error, term()}
+  def finish_planning(ref, reason \\ nil), do: call(ref, {:finish_planning, reason})
+
+  @doc """
   Returns or selects the next current step.
   """
   @spec next_step(pid() | binary()) :: {:ok, SpectreDirective.Step.t() | nil} | {:error, term()}

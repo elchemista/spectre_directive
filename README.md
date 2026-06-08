@@ -82,9 +82,9 @@ For an agent-created mission, use `SpectreDirective.create/1`:
 ```
 
 `model` receives SpectreDirective's English planning prompts and returns normal
-text. No planner module is needed. With `mode: :guided`, the planner asks the
-model for a strategy, then one step at a time until the model answers
-`Finish: reason`.
+text. No planner module is needed. With `mode: :guided`, the mission starts in
+manual guided planning. Your process asks for, accepts, edits, or rejects each
+planning item before execution begins.
 
 For reusable authored checks, use `use SpectreDirective`:
 
@@ -106,8 +106,8 @@ defmodule MyApp.Directives.Signup do
     end
 
     strategies do
-      use :qa_flow
-      use :safe_operator
+      strategy :qa_flow
+      strategy :safe_operator
     end
 
     step "Observe signup entry" do
@@ -199,13 +199,35 @@ Use guided planning when the model should think one piece at a time:
     mission: "Check the signup flow",
     model: &MyApp.ModelClient.complete/1,
     planning_mode: :guided,
-    planning_max_steps: 6
+    planning_subscribers: [self()]
   })
 ```
 
-Guided planning asks for a strategy first, then repeatedly asks for one next
-step or `Finish: reason`. It costs more model calls, but the plan is easier to
-steer and validate while it is being created.
+Guided planning is manual by design. Drive it from a LiveView, GenServer, CLI,
+or another model process:
+
+```elixir
+{:ok, proposal} = SpectreDirective.propose_plan_item(mission)
+{:ok, planning} = SpectreDirective.accept_plan_item(mission)
+
+{:ok, proposal} = SpectreDirective.propose_plan_item(mission)
+{:ok, planning} =
+  SpectreDirective.accept_plan_item(mission, %{
+    type: :step,
+    step: %{title: "Observe signup", kind: :observe, purpose: "Inspect the visible flow."}
+  })
+
+{:ok, pulse} = SpectreDirective.finish_planning(mission)
+```
+
+Any process can also submit a proposal directly:
+
+```elixir
+SpectreDirective.submit_plan_item(mission, %{
+  type: :strategy,
+  strategy: "Observe first, then verify with evidence."
+})
+```
 
 For larger applications, you can still implement `SpectreDirective.Planner`:
 
@@ -246,15 +268,15 @@ SpectreDirective parses the textual draft into real steps. If the draft cannot
 be parsed, it falls back to the existing authored or emergent plan and records
 that in the trace.
 
-Execution is the second loop:
+Execution is the second loop. The host app owns model and tool execution;
+SpectreDirective owns mission state, planning state, alignment requests,
+corrections, control, pulse, and trace:
 
 ```text
-start mission
-read pulse, knowledge, and next step
-ask the model what to do or what it observed
-let the model use your tools
-submit the result as an observation
-repeat until the mission finishes, pauses, or stops
+pulse -> next_step -> knowledge/capabilities
+  -> host model/tools/assertions
+  -> complete_step
+  -> repeat
 ```
 
 In code, that can look like this:
@@ -276,6 +298,7 @@ defmodule MyApp.DirectiveAgent do
     else
       {:ok, step} = SpectreDirective.next_step(mission)
       {:ok, knowledge} = SpectreDirective.knowledge(mission)
+      {:ok, capabilities} = SpectreDirective.capabilities(mission)
 
       observation =
         MyApp.AIModel.complete_step(%{
@@ -283,6 +306,7 @@ defmodule MyApp.DirectiveAgent do
           pulse: pulse,
           step: step,
           knowledge: knowledge,
+          capabilities: capabilities,
           tools: Keyword.get(opts, :tools, [])
         })
 
@@ -297,13 +321,20 @@ The model adapter is normal host-application code:
 
 ```elixir
 defmodule MyApp.AIModel do
-  def complete_step(%{step: step, pulse: pulse, knowledge: knowledge, tools: tools}) do
+  def complete_step(%{
+        step: step,
+        pulse: pulse,
+        knowledge: knowledge,
+        capabilities: capabilities,
+        tools: tools
+      }) do
     response =
       MyApp.ModelClient.respond(%{
         system: "You are executing one SpectreDirective mission step.",
         mission: pulse.mission,
         current_step: step,
-        known_facts: knowledge.facts,
+        known_facts: knowledge.known_facts,
+        capabilities: capabilities.capabilities,
         tools: tools
       })
 
@@ -366,23 +397,24 @@ uncertainty already.
 
 ## Runtime Loop
 
-The mission loop is:
+The mission loop is host-owned:
 
 ```text
-start mission
-recall memory
-discover capabilities
-load or create plan
-select next useful step
-run pre-step alignment
-wait for completion or external execution
-capture observation
-update knowledge
-derive impact
-run post-step alignment
-apply correction
-update trace and pulse
-continue, pause, stop, or finish
+pulse
+next_step
+knowledge + capabilities
+host model/tool/assertion execution
+complete_step
+repeat
+```
+
+Inside SpectreDirective, each turn updates the living mission:
+
+```text
+recall memory -> discover capabilities -> load/create plan
+pre-step alignment -> selected step
+observation -> impact -> knowledge -> correction
+post-step alignment -> trace/pulse/control state
 ```
 
 Two checks matter most:
@@ -391,6 +423,19 @@ Two checks matter most:
 - After a step: what changed because of what we learned?
 
 That tiny hesitation before blindly doing the next thing is the library.
+
+Status handling is deliberately plain OTP state:
+
+- `:planning` means manual guided planning is still open. Use
+  `propose_plan_item/2`, `submit_plan_item/2`, `accept_plan_item/2`,
+  `reject_plan_item/2`, and `finish_planning/2`.
+- `:waiting` means alignment paused on risk or approval. Use `control/2` with
+  `:approve`, `:reject`, `:stop`, or `{:revise_plan, correction}`.
+- `:blocked` means alignment needs more context, an answer, or plan revision.
+  A human, GenServer, LiveView, CLI, or another AI process can call
+  `control(ref, {:revise_plan, correction})`.
+- `:paused` is explicit host control. Use `control(ref, :resume)` to continue.
+- `:finished`, `:stopped`, and `:aborted` are terminal.
 
 ## Public API
 
@@ -402,6 +447,13 @@ SpectreDirective.pulse(ref)
 SpectreDirective.trace(ref)
 SpectreDirective.plan(ref)
 SpectreDirective.knowledge(ref)
+SpectreDirective.capabilities(ref)
+SpectreDirective.planning_state(ref)
+SpectreDirective.propose_plan_item(ref, opts \\ [])
+SpectreDirective.submit_plan_item(ref, proposal)
+SpectreDirective.accept_plan_item(ref, item_or_edit \\ :pending)
+SpectreDirective.reject_plan_item(ref, reason)
+SpectreDirective.finish_planning(ref, reason \\ nil)
 SpectreDirective.next_step(ref)
 SpectreDirective.complete_step(ref, observation)
 SpectreDirective.apply_observation(ref, observation)
@@ -425,7 +477,7 @@ SpectreDirective.await(ref, timeout \\ 60_000)
   risk: :low,
   blocked?: false,
   next_expected_action: "continue: Search frontend evidence",
-  controls: [:pause, :stop, :retry, :skip, :revise, :finish_early]
+  controls: [:pause, :stop, :retry, :skip, :revise_plan, :finish_early]
 }
 ```
 
@@ -464,14 +516,17 @@ Main modules:
 | `SpectreDirective.MissionBlueprint` | Reusable authored or emergent mission definition. |
 | `SpectreDirective.Runtime.MissionMachine` | Per-mission `:gen_statem`; state name is mission status. |
 | `SpectreDirective.Runtime.StepGate` | Pre-step alignment. Starts, skips, pauses, blocks, or finishes. |
+| `SpectreDirective.Runtime.AlignmentGate` | Applies pre-step and post-step alignment recommendations consistently. |
 | `SpectreDirective.Runtime.ObservationRecorder` | Records observation, impact, knowledge, memory, correction, and trace. |
 | `SpectreDirective.Runtime.PlanReviser` | Applies corrections and records plan revisions. |
+| `SpectreDirective.Alignment` | Behaviour boundary for model-backed alignment modules. |
 | `SpectreDirective.Pulse` | Live status snapshot. |
 | `SpectreDirective.Trace.Entry` | Human-readable mission story entry. |
 
 Mission states:
 
 ```text
+planning
 running
 paused
 waiting
@@ -539,7 +594,56 @@ very helpful.
 
 ## Integrations
 
-SpectreDirective has two adapter boundaries.
+SpectreDirective has five integration boundaries. The host app composes them:
+planner/model for plan text, alignment for model-backed judgment, capability
+adapters for available tools, memory adapters for recall/remember, and the host
+executor for actual model/tool/assertion execution. SpectreDirective does not
+run your tools; it keeps the mission state coherent while your app drives them.
+
+Alignment modules implement `SpectreDirective.Alignment`:
+
+```elixir
+defmodule MyApp.SpectreDirective.Alignment do
+  @behaviour SpectreDirective.Alignment
+
+  alias SpectreDirective.Alignment.Result
+
+  @impl SpectreDirective.Alignment
+  def check_alignment(request, _opts) do
+    # Send request.prompt, or the structured request fields, to your model.
+    # Then map the model judgment into an Alignment.Result.
+    MyApp.Model.align(request.prompt)
+    |> case do
+      {:ok, %{safe?: true, reason: reason}} ->
+        Result.new(
+          status: :aligned,
+          recommendation: :continue,
+          check: :mission_relevance,
+          reason: reason
+        )
+
+      {:ok, %{action: :pause, reason: reason}} ->
+        Result.new(
+          status: :risky,
+          recommendation: :pause,
+          check: :risk,
+          reason: reason
+        )
+    end
+  end
+end
+
+SpectreDirective.start_mission("Check signup",
+  alignment: MyApp.SpectreDirective.Alignment
+)
+```
+
+You can also configure a default:
+
+```elixir
+config :spectre_directive,
+  alignment: MyApp.SpectreDirective.Alignment
+```
 
 Memory adapters implement `SpectreDirective.MemoryStore`:
 
@@ -596,6 +700,21 @@ Use adapters at mission start:
     ],
     kinetic: kinetic_runtime
   )
+```
+
+When a human supervisor or AI reviewer needs to repair a blocked plan, use a
+normal correction through control:
+
+```elixir
+SpectreDirective.control(mission, {
+  :revise_plan,
+  %{
+    type: :remove_steps,
+    strategy: :strategic,
+    reason: "The reviewer removed a stale blocked step.",
+    changes: %{matching: "obsolete verification"}
+  }
+})
 ```
 
 Generate starter adapters in a host app:

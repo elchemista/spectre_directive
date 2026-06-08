@@ -24,6 +24,9 @@ defmodule SpectreDirective.Runtime.MissionMachine do
 
   alias SpectreDirective.MissionBlueprint
   alias SpectreDirective.Plan
+  alias SpectreDirective.Planning.Proposal
+  alias SpectreDirective.Planning.Session
+  alias SpectreDirective.Planning.TextProvider
   alias SpectreDirective.Runtime.Bootstrap
   alias SpectreDirective.Runtime.Control
   alias SpectreDirective.Runtime.ObservationRecorder
@@ -65,9 +68,7 @@ defmodule SpectreDirective.Runtime.MissionMachine do
       |> Keyword.fetch!(:blueprint)
       |> Bootstrap.build(opts)
       |> State.add_trace(:started, started_message(opts))
-      # The first useful step is selected immediately so a pulse can explain
-      # what the mission expects next as soon as the process starts.
-      |> StepGate.select_next()
+      |> select_initial_step()
       |> State.refresh_pulse()
 
     {:ok, state.status, state}
@@ -87,13 +88,127 @@ defmodule SpectreDirective.Runtime.MissionMachine do
   def handle_event({:call, from}, :knowledge, _state_name, state),
     do: reply_keep_state(from, {:ok, state.knowledge}, state)
 
-  def handle_event({:call, from}, :next_step, _state_name, state) do
-    state =
-      state
-      |> select_step_if_needed()
-      |> State.refresh_pulse()
+  def handle_event({:call, from}, :capabilities, _state_name, state),
+    do: reply_keep_state(from, {:ok, state.capabilities}, state)
 
-    reply_next_state(from, {:ok, Plan.current_step(state.plan)}, state)
+  def handle_event({:call, from}, :planning_state, _state_name, state) do
+    reply_keep_state(from, planning_state_reply(state), state)
+  end
+
+  def handle_event({:call, from}, {:propose_plan_item, opts}, _state_name, state) do
+    case planning_session(state) do
+      {:ok, %Session{pending: %Proposal{} = pending}} ->
+        reply_keep_state(from, {:error, {:pending_plan_item, pending.id}}, state)
+
+      {:ok, session} ->
+        with {:ok, provider} <- planning_provider(state, opts),
+             {:ok, session, proposal} <-
+               Session.propose(
+                 session,
+                 provider,
+                 state.blueprint,
+                 state.knowledge,
+                 state.capabilities,
+                 Keyword.merge(state.opts, opts)
+               ) do
+          state =
+            state
+            |> put_planning(session)
+            |> State.add_trace(:planning_proposal, proposal_message(proposal), proposal)
+            |> notify_planning(:planning_proposal, proposal)
+            |> notify_planning(:planning_updated, Session.public(session))
+            |> State.refresh_pulse()
+
+          reply_next_state(from, {:ok, proposal}, state)
+        else
+          {:error, reason} -> reply_keep_state(from, {:error, reason}, state)
+        end
+
+      {:error, reason} ->
+        reply_keep_state(from, {:error, reason}, state)
+    end
+  end
+
+  def handle_event({:call, from}, {:submit_plan_item, item}, _state_name, state) do
+    with {:ok, session} <- planning_session(state),
+         {:ok, session, proposal} <- Session.submit(session, item) do
+      state =
+        state
+        |> put_planning(session)
+        |> State.add_trace(:planning_proposal, "Received external planning proposal.", proposal)
+        |> notify_planning(:planning_proposal, proposal)
+        |> notify_planning(:planning_updated, Session.public(session))
+        |> State.refresh_pulse()
+
+      reply_next_state(from, {:ok, proposal}, state)
+    else
+      {:error, reason} -> reply_keep_state(from, {:error, reason}, state)
+    end
+  end
+
+  def handle_event({:call, from}, {:accept_plan_item, item_or_edit}, _state_name, state) do
+    with {:ok, session} <- planning_session(state),
+         {:ok, session, proposal} <- Session.accept(session, item_or_edit) do
+      state =
+        state
+        |> put_planning(session)
+        |> State.add_trace(:planning_accepted, accepted_message(proposal), proposal)
+        |> notify_planning(:planning_updated, Session.public(session))
+        |> State.refresh_pulse()
+
+      reply_next_state(from, {:ok, Session.public(session)}, state)
+    else
+      {:error, reason} -> reply_keep_state(from, {:error, reason}, state)
+    end
+  end
+
+  def handle_event({:call, from}, {:reject_plan_item, reason}, _state_name, state) do
+    with {:ok, session} <- planning_session(state),
+         {:ok, session} <- Session.reject(session, reason) do
+      state =
+        state
+        |> put_planning(session)
+        |> State.add_trace(:planning_rejected, "Rejected planning proposal.", reason)
+        |> notify_planning(:planning_updated, Session.public(session))
+        |> State.refresh_pulse()
+
+      reply_next_state(from, {:ok, Session.public(session)}, state)
+    else
+      {:error, reason} -> reply_keep_state(from, {:error, reason}, state)
+    end
+  end
+
+  def handle_event({:call, from}, {:finish_planning, reason}, _state_name, state) do
+    case planning_session(state) do
+      {:ok, session} ->
+        state = finish_manual_planning(state, session, reason)
+        reply_next_state(from, {:ok, state.pulse}, state)
+
+      {:error, reason} ->
+        reply_keep_state(from, {:error, reason}, state)
+    end
+  end
+
+  def handle_event({:call, from}, :next_step, _state_name, state) do
+    if state.status == :planning do
+      reply_keep_state(from, {:error, :planning_in_progress}, state)
+    else
+      state =
+        state
+        |> select_step_if_needed()
+        |> State.refresh_pulse()
+
+      reply_next_state(from, {:ok, Plan.current_step(state.plan)}, state)
+    end
+  end
+
+  def handle_event(
+        {:call, from},
+        {:complete_step, _observation_payload},
+        _state_name,
+        %State{status: :planning} = state
+      ) do
+    reply_keep_state(from, {:error, :planning_in_progress}, state)
   end
 
   def handle_event({:call, from}, {:complete_step, observation_payload}, _state_name, state) do
@@ -146,6 +261,81 @@ defmodule SpectreDirective.Runtime.MissionMachine do
   @spec select_step_if_needed(SpectreDirective.Step.t() | nil, State.t()) :: State.t()
   defp select_step_if_needed(nil, state), do: StepGate.select_next(state)
   defp select_step_if_needed(_step, state), do: state
+
+  @spec select_initial_step(State.t()) :: State.t()
+  defp select_initial_step(%State{status: :planning} = state), do: state
+
+  defp select_initial_step(%State{} = state) do
+    # The first useful step is selected immediately so a pulse can explain
+    # what the mission expects next as soon as the process starts.
+    StepGate.select_next(state)
+  end
+
+  @spec planning_state_reply(State.t()) :: {:ok, map()} | {:error, :not_planning}
+  defp planning_state_reply(%State{planning: %Session{} = session}),
+    do: {:ok, Session.public(session)}
+
+  defp planning_state_reply(%State{}), do: {:error, :not_planning}
+
+  @spec planning_session(State.t()) :: {:ok, Session.t()} | {:error, :not_planning}
+  defp planning_session(%State{status: :planning, planning: %Session{} = session}),
+    do: {:ok, session}
+
+  defp planning_session(%State{}), do: {:error, :not_planning}
+
+  @spec finish_manual_planning(State.t(), Session.t(), term()) :: State.t()
+  defp finish_manual_planning(%State{} = state, %Session{} = session, reason) do
+    {plan, session, finish_reason} = Session.finish_plan(session, reason)
+
+    state
+    |> put_planning(session)
+    |> State.put_plan(plan)
+    |> State.put_status(:running)
+    |> State.add_trace(:planned, "Finished manual guided planning.", %{
+      mode: :guided,
+      reason: finish_reason,
+      steps: Enum.map(plan.steps, & &1.title)
+    })
+    |> notify_planning(:planning_updated, Session.public(session))
+    |> StepGate.select_next()
+    |> State.refresh_pulse()
+  end
+
+  @spec planning_provider(State.t(), keyword()) ::
+          {:ok, TextProvider.provider()} | {:error, term()}
+  defp planning_provider(%State{} = state, opts) do
+    state.opts
+    |> Keyword.merge(opts)
+    |> TextProvider.from_opts()
+    |> case do
+      nil -> {:error, :planning_provider_required}
+      :none -> {:error, :planning_provider_required}
+      provider -> {:ok, provider}
+    end
+  end
+
+  @spec put_planning(State.t(), Session.t()) :: State.t()
+  defp put_planning(%State{} = state, %Session{} = session), do: %{state | planning: session}
+
+  @spec notify_planning(State.t(), atom(), term()) :: State.t()
+  defp notify_planning(%State{} = state, event, payload) when is_atom(event) do
+    state.opts
+    |> Keyword.get(:planning_subscribers, [])
+    |> List.wrap()
+    |> Enum.each(fn pid ->
+      if is_pid(pid) do
+        send(pid, {:spectre_directive, state.blueprint.mission.id, event, payload})
+      end
+    end)
+
+    state
+  end
+
+  @spec proposal_message(Proposal.t()) :: binary()
+  defp proposal_message(%Proposal{type: type}), do: "Received #{type} planning proposal."
+
+  @spec accepted_message(Proposal.t()) :: binary()
+  defp accepted_message(%Proposal{type: type}), do: "Accepted #{type} planning proposal."
 
   @spec registry_name(MissionBlueprint.t()) :: {:via, Registry, {module(), binary()}}
   defp registry_name(%MissionBlueprint{} = blueprint) do

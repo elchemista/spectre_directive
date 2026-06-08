@@ -16,6 +16,7 @@ defmodule SpectreDirective.Planning.Request do
   alias SpectreDirective.Knowledge
   alias SpectreDirective.Mission
   alias SpectreDirective.MissionBlueprint
+  alias SpectreDirective.Strategies
   alias SpectreDirective.Step
 
   @type t :: %__MODULE__{
@@ -83,7 +84,7 @@ defmodule SpectreDirective.Planning.Request do
       blueprint: blueprint,
       knowledge: knowledge,
       capabilities: capabilities,
-      prompt: guided_strategy_prompt(blueprint, knowledge, capabilities),
+      prompt: guided_strategy_prompt(blueprint, knowledge, capabilities, opts),
       mode: :guided_strategy,
       opts: opts
     }
@@ -118,7 +119,15 @@ defmodule SpectreDirective.Planning.Request do
       knowledge: knowledge,
       capabilities: capabilities,
       prompt:
-        guided_step_prompt(blueprint, knowledge, capabilities, strategy, generated_steps, turn),
+        guided_step_prompt(
+          blueprint,
+          knowledge,
+          capabilities,
+          strategy,
+          generated_steps,
+          turn,
+          opts
+        ),
       mode: :guided_step,
       generated_steps: generated_steps,
       turn: turn,
@@ -156,6 +165,9 @@ defmodule SpectreDirective.Planning.Request do
     Available capabilities:
     #{capability_list(capabilities)}
 
+    Directive strategies:
+    #{strategy_list(blueprint)}
+
     Please answer in this shape:
 
     Strategy: one short paragraph explaining the plan.
@@ -171,9 +183,14 @@ defmodule SpectreDirective.Planning.Request do
     """
   end
 
-  @spec guided_strategy_prompt(MissionBlueprint.t(), Knowledge.t(), CapabilitySnapshot.t()) ::
+  @spec guided_strategy_prompt(
+          MissionBlueprint.t(),
+          Knowledge.t(),
+          CapabilitySnapshot.t(),
+          keyword()
+        ) ::
           binary()
-  defp guided_strategy_prompt(blueprint, knowledge, capabilities) do
+  defp guided_strategy_prompt(blueprint, knowledge, capabilities, opts) do
     """
     You are planning a SpectreDirective mission.
 
@@ -198,6 +215,12 @@ defmodule SpectreDirective.Planning.Request do
     Available capabilities:
     #{capability_list(capabilities)}
 
+    Directive strategies:
+    #{strategy_list(blueprint)}
+
+    Planning feedback:
+    #{feedback_list(Keyword.get(opts, :planning_feedback, []))}
+
     Answer as:
     Strategy: your strategy paragraph
     """
@@ -209,9 +232,18 @@ defmodule SpectreDirective.Planning.Request do
           CapabilitySnapshot.t(),
           binary(),
           [Step.t()],
-          pos_integer()
+          pos_integer(),
+          keyword()
         ) :: binary()
-  defp guided_step_prompt(blueprint, knowledge, capabilities, strategy, generated_steps, turn) do
+  defp guided_step_prompt(
+         blueprint,
+         knowledge,
+         capabilities,
+         strategy,
+         generated_steps,
+         turn,
+         opts
+       ) do
     """
     You are planning a SpectreDirective mission one step at a time.
 
@@ -236,8 +268,14 @@ defmodule SpectreDirective.Planning.Request do
     Available capabilities:
     #{capability_list(capabilities)}
 
+    Directive strategies:
+    #{strategy_list(blueprint)}
+
     Steps already generated:
     #{steps_or_dash(generated_steps)}
+
+    Planning feedback:
+    #{feedback_list(Keyword.get(opts, :planning_feedback, []))}
 
     Generate only step #{turn}. If the plan is complete, answer:
 
@@ -275,6 +313,32 @@ defmodule SpectreDirective.Planning.Request do
       "- #{capability.name}: #{capability.description || "no description"}"
     end)
   end
+
+  @spec strategy_list(MissionBlueprint.t()) :: binary()
+  defp strategy_list(%MissionBlueprint{strategies: strategies}) do
+    expanded = Strategies.expand(strategies)
+
+    case {strategies, expanded} do
+      {[], []} ->
+        "-"
+
+      {_strategies, []} ->
+        list_or_dash(strategies)
+
+      {strategies, expanded} ->
+        """
+        presets:
+        #{list_or_dash(strategies)}
+
+        primitives:
+        #{list_or_dash(expanded)}
+        """
+        |> String.trim()
+    end
+  end
+
+  @spec feedback_list([term()]) :: binary()
+  defp feedback_list(feedback), do: list_or_dash(List.wrap(feedback))
 
   @spec steps_or_dash([Step.t()]) :: binary()
   defp steps_or_dash([]), do: "-"
