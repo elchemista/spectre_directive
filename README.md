@@ -505,24 +505,6 @@ why it mattered.
 The useful distinction is this: true and useful are not the same word. A fact
 can be accurate and still be low-value for the current mission.
 
-## Architecture
-
-Main modules:
-
-| Module | Role |
-| --- | --- |
-| `SpectreDirective` | Public facade and `use SpectreDirective` entry point. |
-| `SpectreDirective.DSL` | Authoring macros. Compiles modules into mission blueprints. |
-| `SpectreDirective.MissionBlueprint` | Reusable authored or emergent mission definition. |
-| `SpectreDirective.Runtime.MissionMachine` | Per-mission `:gen_statem`; state name is mission status. |
-| `SpectreDirective.Runtime.StepGate` | Pre-step alignment. Starts, skips, pauses, blocks, or finishes. |
-| `SpectreDirective.Runtime.AlignmentGate` | Applies pre-step and post-step alignment recommendations consistently. |
-| `SpectreDirective.Runtime.ObservationRecorder` | Records observation, impact, knowledge, memory, correction, and trace. |
-| `SpectreDirective.Runtime.PlanReviser` | Applies corrections and records plan revisions. |
-| `SpectreDirective.Alignment` | Behaviour boundary for model-backed alignment modules. |
-| `SpectreDirective.Pulse` | Live status snapshot. |
-| `SpectreDirective.Trace.Entry` | Human-readable mission story entry. |
-
 Mission states:
 
 ```text
