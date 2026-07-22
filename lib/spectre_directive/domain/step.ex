@@ -1,41 +1,18 @@
 defmodule SpectreDirective.Step do
   @moduledoc """
-  One executable or monitorable piece of a living plan.
+  One unit of intent in a living plan.
 
-  A step is more than an action name. It carries intent:
-
-  * `purpose` says why this work helps the mission.
-  * `reason` explains why this step exists now.
-  * `expected_output` and `done_condition` help an agent know when to stop.
-  * `risk` and `required_capability` feed pre-step alignment.
-  * `flexibility` tells the planner how free it is to skip or adapt the step.
-
-  Good step:
-
-      Step.new("Search frontend evidence",
-        kind: :investigate,
-        purpose: "Find React, TypeScript, UI, and frontend evidence",
-        expected_output: "Frontend-related repositories or absence of evidence",
-        flexibility: :agentic
-      )
+  A step may contain a trusted invocation target. If it does not, the reasoner
+  decides what information or action is needed next. An invocation never
+  mutates loop state directly; its return value is interpreted by the engine.
   """
 
   alias SpectreDirective.ID
 
-  @type kind ::
-          :remember
-          | :observe
-          | :investigate
-          | :act
-          | :verify
-          | :summarize
-          | :ask
-          | :decide
-          | :guard
-          | :correct
-          | :finish
+  @type kind :: :observe | :investigate | :act | :verify | :summarize | :ask | :decide | atom()
   @type status :: :pending | :running | :completed | :skipped | :blocked | :failed
   @type flexibility :: :locked | :guided | :optional | :agentic
+  @type source :: :authored | :generated | :user_added
 
   @type t :: %__MODULE__{
           id: binary(),
@@ -43,17 +20,18 @@ defmodule SpectreDirective.Step do
           kind: kind(),
           purpose: binary() | nil,
           reason: binary() | nil,
-          required_capability: atom() | binary() | nil,
           input: term(),
-          expected_output: binary() | nil,
-          done_condition: binary() | nil,
+          expected_output: term(),
+          done_condition: term(),
+          invoke: term(),
+          policy: term(),
           risk: atom(),
           status: status(),
           owner: term(),
           attempts: non_neg_integer(),
           evidence: [term()],
           result: term(),
-          source: :authored | :generated | :correction_added | :user_added,
+          source: source(),
           flexibility: flexibility(),
           prompt: binary() | nil,
           metadata: map()
@@ -64,10 +42,11 @@ defmodule SpectreDirective.Step do
     :title,
     :purpose,
     :reason,
-    :required_capability,
     :input,
     :expected_output,
     :done_condition,
+    :invoke,
+    :policy,
     :owner,
     :result,
     :prompt,
@@ -81,39 +60,57 @@ defmodule SpectreDirective.Step do
     metadata: %{}
   ]
 
-  @doc """
-  Builds a step from a title, attribute map, or keyword list.
-  """
-  @spec new(binary() | map() | keyword(), keyword()) :: t()
+  @doc "Builds a step from a title or attributes."
+  @spec new(binary() | map() | keyword() | t(), keyword()) :: t()
   def new(step, opts \\ [])
 
-  def new(title, opts) when is_binary(title) do
-    new(Keyword.put(opts, :title, title), [])
+  def new(%__MODULE__{} = step, opts) do
+    attrs = Map.merge(Map.from_struct(step), Map.new(opts))
+    build(attrs)
   end
 
-  def new(attrs, opts) when is_map(attrs) or is_list(attrs) do
-    attrs = Map.merge(Map.new(attrs), Map.new(opts))
+  def new(title, opts) when is_binary(title), do: build(Map.put(Map.new(opts), :title, title))
 
+  def new(attrs, opts) when is_map(attrs) or is_list(attrs) do
+    attrs |> Map.new() |> Map.merge(Map.new(opts)) |> build()
+  end
+
+  @spec build(map()) :: t()
+  defp build(attrs) do
     %__MODULE__{
-      id: Map.get(attrs, :id) || ID.new("step"),
-      title: Map.get(attrs, :title) || "Untitled step",
-      kind: Map.get(attrs, :kind, :investigate),
-      purpose: Map.get(attrs, :purpose),
-      reason: Map.get(attrs, :reason),
-      required_capability: Map.get(attrs, :required_capability) || Map.get(attrs, :capability),
-      input: Map.get(attrs, :input),
-      expected_output: Map.get(attrs, :expected_output) || Map.get(attrs, :expects),
-      done_condition: Map.get(attrs, :done_condition) || Map.get(attrs, :done_when),
-      risk: Map.get(attrs, :risk, :low),
-      status: Map.get(attrs, :status, :pending),
-      owner: Map.get(attrs, :owner),
-      attempts: Map.get(attrs, :attempts, 0),
-      evidence: List.wrap(Map.get(attrs, :evidence, [])),
-      result: Map.get(attrs, :result),
-      source: Map.get(attrs, :source, :authored),
-      flexibility: Map.get(attrs, :flexibility, :guided),
-      prompt: Map.get(attrs, :prompt),
-      metadata: Map.new(Map.get(attrs, :metadata, %{}))
+      id: value(attrs, :id) || ID.new("step"),
+      title: value(attrs, :title) || "Untitled step",
+      kind: value(attrs, :kind, :investigate),
+      purpose: value(attrs, :purpose),
+      reason: value(attrs, :reason),
+      input: value(attrs, :input),
+      expected_output: value(attrs, [:expected_output, :expects]),
+      done_condition: value(attrs, [:done_condition, :done_when]),
+      invoke: value(attrs, [:invoke, :invocation]),
+      policy: value(attrs, :policy),
+      risk: value(attrs, :risk, :low),
+      status: value(attrs, :status, :pending),
+      owner: value(attrs, :owner),
+      attempts: value(attrs, :attempts, 0),
+      evidence: List.wrap(value(attrs, :evidence, [])),
+      result: value(attrs, :result),
+      source: value(attrs, :source, :authored),
+      flexibility: value(attrs, :flexibility, :guided),
+      prompt: value(attrs, :prompt),
+      metadata: Map.new(value(attrs, :metadata, %{}))
     }
+  end
+
+  @spec value(map(), atom() | [atom()], term()) :: term()
+  defp value(attrs, key_or_keys, default \\ nil)
+
+  defp value(attrs, keys, default) when is_list(keys),
+    do: Enum.find_value(keys, default, &value(attrs, &1))
+
+  defp value(attrs, key, default) do
+    case Map.fetch(attrs, key) do
+      {:ok, value} -> value
+      :error -> Map.get(attrs, Atom.to_string(key), default)
+    end
   end
 end
