@@ -14,12 +14,13 @@ defmodule SpectreDirective.MixProject do
       deps: deps(),
       description: description(),
       package: package(),
+      test_coverage: [summary: [threshold: 90]],
       dialyzer: [
         plt_add_apps: [:mix]
       ],
       docs: [
         main: "readme",
-        extras: ["README.md", "LICENSE"]
+        extras: ["README.md", "PLAN.md", "LICENSE"]
       ],
       source_url: @source_url,
       homepage_url: @source_url
@@ -33,14 +34,14 @@ defmodule SpectreDirective.MixProject do
   end
 
   defp description do
-    "A self-correcting mission planner for Spectre agents"
+    "An embeddable, self-correcting mission and plan loop for Elixir agents"
   end
 
   defp package do
     [
       name: "spectre_directive",
       maintainers: ["elchemista"],
-      files: ~w(lib mix.exs README.md LICENSE),
+      files: ~w(lib mix.exs README.md PLAN.md LICENSE),
       licenses: ["Apache-2.0"],
       links: %{"GitHub" => @source_url}
     ]
@@ -48,11 +49,10 @@ defmodule SpectreDirective.MixProject do
 
   defp deps do
     [
-      {:spectre_mnemonic, github: "elchemista/spectre_mnemonic", only: [:test]},
-      {:spectre_kinetic, github: "elchemista/spectre_kinetic", only: [:test]},
-      {:spectre_lens, github: "elchemista/spectre_lens", only: [:test]},
       {:credo, "~> 1.7", only: [:dev, :test], runtime: false},
-      {:dialyxir, "~> 1.4", only: [:dev], runtime: false}
+      {:dialyxir, "~> 1.4", only: [:dev], runtime: false},
+      {:ex_doc, "~> 0.38", only: :dev, runtime: false},
+      {:spectre, github: "elchemista/spectre", only: :test}
     ]
   end
 end
