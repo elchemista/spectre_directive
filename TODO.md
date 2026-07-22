@@ -1,2 +1,0 @@
-1) on genstatem on creating plan one step at the time we should evit the model reposnse so if i want integrate with user djudgment i can do it.. so youser see the plan in real time and be able also to partecipate on creating it befoer run.
-2) how model is partecipating on going to next step or re allinement and stetegies ? i still didnt see any calls for that.
