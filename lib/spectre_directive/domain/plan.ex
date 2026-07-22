@@ -1,16 +1,9 @@
 defmodule SpectreDirective.Plan do
   @moduledoc """
-  The current strategy for a mission. It is expected to change.
+  The versioned, living strategy for a mission.
 
-  A plan is versioned because correction is normal, not exceptional. Each
-  revision records a reason and optional correction payload so a monitor can ask
-  why a mission changed direction.
-
-      Plan v1: inspect every repository
-      Plan v2: inspect only frontend candidates
-
-  In the runtime, completed and skipped steps remain visible. They are part of
-  the mission story and help prevent redundant or low-value work.
+  Completed and skipped steps remain visible so the host and reasoner can
+  understand what happened and avoid repeating work.
   """
 
   alias SpectreDirective.ID
@@ -22,7 +15,7 @@ defmodule SpectreDirective.Plan do
           required(:version) => pos_integer(),
           required(:reason) => binary(),
           required(:timestamp) => DateTime.t(),
-          optional(:correction) => term()
+          optional(:change) => term()
         }
 
   @type t :: %__MODULE__{
@@ -70,15 +63,15 @@ defmodule SpectreDirective.Plan do
 
   def new(attrs, opts) when is_map(attrs) do
     %__MODULE__{
-      id: Map.get(attrs, :id) || Keyword.get(opts, :id) || ID.new("plan"),
-      version: Map.get(attrs, :version, 1),
-      reason: Map.get(attrs, :reason),
-      source: Map.get(attrs, :source, :authored),
-      steps: Enum.map(Map.get(attrs, :steps, []), &normalize_step/1),
-      skipped_steps: Enum.map(Map.get(attrs, :skipped_steps, []), &normalize_step/1),
-      completed_steps: Enum.map(Map.get(attrs, :completed_steps, []), &normalize_step/1),
-      revision_history: Map.get(attrs, :revision_history, []),
-      current_step_id: Map.get(attrs, :current_step_id)
+      id: value(attrs, :id) || Keyword.get(opts, :id) || ID.new("plan"),
+      version: value(attrs, :version, 1),
+      reason: value(attrs, :reason),
+      source: value(attrs, :source, :authored),
+      steps: Enum.map(value(attrs, :steps, []), &normalize_step/1),
+      skipped_steps: Enum.map(value(attrs, :skipped_steps, []), &normalize_step/1),
+      completed_steps: Enum.map(value(attrs, :completed_steps, []), &normalize_step/1),
+      revision_history: value(attrs, :revision_history, []),
+      current_step_id: value(attrs, :current_step_id)
     }
   end
 
@@ -131,11 +124,11 @@ defmodule SpectreDirective.Plan do
   end
 
   @doc """
-  Adds a correction-created step and records a plan revision.
+  Adds a generated step and records a plan revision.
   """
   @spec add_step(t(), Step.t() | map(), binary()) :: t()
   def add_step(%__MODULE__{} = plan, step, reason) do
-    step = step |> normalize_step() |> Map.put(:source, :correction_added)
+    step = step |> normalize_step() |> Map.put(:source, :generated)
 
     revise(%{plan | steps: plan.steps ++ [step]}, reason, %{type: :add_step, step_id: step.id})
   end
@@ -158,11 +151,11 @@ defmodule SpectreDirective.Plan do
   Records a plan revision without changing the step list.
   """
   @spec revise(t(), binary(), term()) :: t()
-  def revise(%__MODULE__{} = plan, reason, correction \\ nil) do
+  def revise(%__MODULE__{} = plan, reason, change \\ nil) do
     revision = %{
       version: plan.version + 1,
       reason: reason,
-      correction: correction,
+      change: change,
       timestamp: DateTime.utc_now()
     }
 
@@ -172,4 +165,12 @@ defmodule SpectreDirective.Plan do
   @spec normalize_step(Step.t() | map() | keyword()) :: Step.t()
   defp normalize_step(%Step{} = step), do: step
   defp normalize_step(attrs), do: Step.new(attrs)
+
+  @spec value(map(), atom(), term()) :: term()
+  defp value(attrs, key, default \\ nil) do
+    case Map.fetch(attrs, key) do
+      {:ok, value} -> value
+      :error -> Map.get(attrs, Atom.to_string(key), default)
+    end
+  end
 end
