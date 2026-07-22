@@ -22,6 +22,7 @@
 GUIDELINE.md
 SKILL.md
 CONCEPT.md
+PLAN.md
 TODO.md
 
 # If the VM crashes, it generates a dump, let's ignore it too.
