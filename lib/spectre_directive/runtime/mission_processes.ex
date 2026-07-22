@@ -1,146 +1,176 @@
 defmodule SpectreDirective.Runtime.MissionProcesses do
-  @moduledoc """
-  Process-facing API for live missions.
-
-  `SpectreDirective` delegates to this module after an authored or emergent
-  mission has been normalized into a `SpectreDirective.MissionBlueprint`.
-
-  The module owns the small bit of OTP plumbing that should not leak into the
-  public API:
-
-  * lazily starts runtime infrastructure when the host application has not
-    supervised it explicitly,
-  * starts one `MissionMachine` per mission,
-  * resolves either mission pids or mission ids,
-  * converts missing mission ids into `{:error, :not_found}`.
-
-  It deliberately does not contain planning logic. Planning and correction live
-  in the mission machine and runtime domain modules.
-  """
+  @moduledoc false
 
   alias SpectreDirective.MissionBlueprint
-  alias SpectreDirective.Pulse
+  alias SpectreDirective.Outcome
   alias SpectreDirective.Runtime.MissionMachine
 
-  @doc """
-  Starts a supervised runtime process for a mission blueprint.
-  """
+  @registry SpectreDirective.Registry
+  @mission_supervisor SpectreDirective.MissionSupervisor
+
+  @doc false
   @spec start(MissionBlueprint.t(), keyword()) :: {:ok, pid()} | {:error, term()}
   def start(%MissionBlueprint{} = blueprint, opts) do
     with :ok <- SpectreDirective.Runtime.Supervisor.ensure_started(runtime_opts(opts)) do
       child = {MissionMachine, Keyword.put(opts, :blueprint, blueprint)}
-      DynamicSupervisor.start_child(SpectreDirective.MissionSupervisor, child)
+      DynamicSupervisor.start_child(@mission_supervisor, child)
     end
   end
 
-  @doc """
-  Returns the live pulse for a mission process or mission id.
-  """
-  @spec pulse(pid() | binary()) :: {:ok, Pulse.t()} | {:error, term()}
+  @doc false
+  @spec start_loop(SpectreDirective.Loop.State.t(), keyword()) ::
+          {:ok, pid()} | {:error, term()}
+  def start_loop(%SpectreDirective.Loop.State{} = loop, opts) do
+    with :ok <- SpectreDirective.Runtime.Supervisor.ensure_started(runtime_opts(opts)) do
+      child = {MissionMachine, Keyword.put(opts, :loop, loop)}
+      DynamicSupervisor.start_child(@mission_supervisor, child)
+    end
+  end
+
+  @doc false
+  @spec pulse(pid() | binary()) :: {:ok, SpectreDirective.Pulse.t()} | {:error, term()}
   def pulse(ref), do: call(ref, :pulse)
 
-  @doc """
-  Returns the mission trace.
-  """
-  @spec trace(pid() | binary()) :: {:ok, list()} | {:error, term()}
+  @doc false
+  @spec state(pid() | binary()) :: {:ok, SpectreDirective.Loop.State.t()} | {:error, term()}
+  def state(ref), do: call(ref, :state)
+
+  @doc false
+  @spec request(pid() | binary()) :: {:ok, SpectreDirective.Request.t() | nil} | {:error, term()}
+  def request(ref), do: call(ref, :request)
+
+  @doc false
+  @spec outcome(pid() | binary()) :: {:ok, SpectreDirective.Outcome.t() | nil} | {:error, term()}
+  def outcome(ref), do: call(ref, :outcome)
+
+  @doc false
+  @spec trace(pid() | binary()) :: {:ok, [SpectreDirective.Trace.Entry.t()]} | {:error, term()}
   def trace(ref), do: call(ref, :trace)
 
-  @doc """
-  Returns the current mission plan.
-  """
+  @doc false
   @spec plan(pid() | binary()) :: {:ok, SpectreDirective.Plan.t()} | {:error, term()}
   def plan(ref), do: call(ref, :plan)
 
-  @doc """
-  Returns the current mission knowledge.
-  """
-  @spec knowledge(pid() | binary()) :: {:ok, SpectreDirective.Knowledge.t()} | {:error, term()}
-  def knowledge(ref), do: call(ref, :knowledge)
+  @doc false
+  @spec context(pid() | binary()) :: {:ok, SpectreDirective.Context.t()} | {:error, term()}
+  def context(ref), do: call(ref, :context)
 
-  @doc """
-  Returns the discovered and authored capability snapshot.
-  """
-  @spec capabilities(pid() | binary()) ::
-          {:ok, SpectreDirective.CapabilitySnapshot.t()} | {:error, term()}
-  def capabilities(ref), do: call(ref, :capabilities)
+  @doc false
+  @spec subscribe(pid() | binary(), pid()) :: :ok | {:error, term()}
+  def subscribe(ref, subscriber \\ self()), do: call(ref, {:subscribe, subscriber})
 
-  @doc """
-  Returns the current manual guided planning state.
-  """
-  @spec planning_state(pid() | binary()) :: {:ok, term()} | {:error, term()}
-  def planning_state(ref), do: call(ref, :planning_state)
+  @doc false
+  @spec respond(pid() | binary(), binary(), term()) ::
+          {:ok, SpectreDirective.Pulse.t()} | {:error, term()}
+  def respond(ref, request_id, response), do: call(ref, {:respond, request_id, response})
 
-  @doc """
-  Asks the configured planner/model for one manual guided planning item.
-  """
-  @spec propose_plan_item(pid() | binary(), keyword()) :: {:ok, term()} | {:error, term()}
-  def propose_plan_item(ref, opts \\ []), do: call(ref, {:propose_plan_item, opts})
+  @doc false
+  @spec respond(pid() | binary(), term()) :: {:ok, SpectreDirective.Pulse.t()} | {:error, term()}
+  def respond(ref, response), do: call(ref, {:respond, response})
 
-  @doc """
-  Submits a manual guided planning item from an external process.
-  """
-  @spec submit_plan_item(pid() | binary(), term()) :: {:ok, term()} | {:error, term()}
-  def submit_plan_item(ref, proposal), do: call(ref, {:submit_plan_item, proposal})
+  @doc false
+  @spec inform(pid() | binary(), term(), keyword()) ::
+          {:ok, SpectreDirective.Pulse.t()} | {:error, term()}
+  def inform(ref, information, opts \\ []), do: call(ref, {:inform, information, opts})
 
-  @doc """
-  Accepts the pending manual guided planning item, optionally with edits.
-  """
-  @spec accept_plan_item(pid() | binary(), term()) :: {:ok, term()} | {:error, term()}
-  def accept_plan_item(ref, item_or_edit \\ :pending),
-    do: call(ref, {:accept_plan_item, item_or_edit})
+  @doc false
+  @spec assign(pid() | binary(), map()) ::
+          {:ok, SpectreDirective.Pulse.t()} | {:error, term()}
+  def assign(ref, assigns), do: call(ref, {:assign, assigns})
 
-  @doc """
-  Rejects the pending manual guided planning item.
-  """
-  @spec reject_plan_item(pid() | binary(), term()) :: {:ok, term()} | {:error, term()}
-  def reject_plan_item(ref, reason), do: call(ref, {:reject_plan_item, reason})
-
-  @doc """
-  Finishes manual guided planning and starts execution.
-  """
-  @spec finish_planning(pid() | binary(), term()) :: {:ok, Pulse.t()} | {:error, term()}
-  def finish_planning(ref, reason \\ nil), do: call(ref, {:finish_planning, reason})
-
-  @doc """
-  Returns or selects the next current step.
-  """
-  @spec next_step(pid() | binary()) :: {:ok, SpectreDirective.Step.t() | nil} | {:error, term()}
-  def next_step(ref), do: call(ref, :next_step)
-
-  @doc """
-  Completes the current step with an observation.
-  """
-  @spec complete_step(pid() | binary(), term()) :: {:ok, Pulse.t()} | {:error, term()}
-  def complete_step(ref, observation), do: call(ref, {:complete_step, observation})
-
-  @doc """
-  Applies an observation to the current step.
-  """
-  @spec apply_observation(pid() | binary(), term()) :: {:ok, Pulse.t()} | {:error, term()}
-  def apply_observation(ref, observation), do: complete_step(ref, observation)
-
-  @doc """
-  Applies a control action to the mission.
-  """
-  @spec control(pid() | binary(), term()) :: {:ok, Pulse.t()} | {:error, term()}
+  @doc false
+  @spec control(pid() | binary(), term()) :: {:ok, SpectreDirective.Pulse.t()} | {:error, term()}
   def control(ref, action), do: call(ref, {:control, action})
 
-  @spec call(pid() | binary(), term()) :: {:ok, term()} | {:error, :not_found}
-  defp call(ref, message) when is_pid(ref), do: :gen_statem.call(ref, message)
+  @doc false
+  @spec stop(pid() | binary()) :: :ok | {:error, term()}
+  def stop(ref) when is_pid(ref), do: stop_pid(ref)
 
-  defp call(ref, message) when is_binary(ref) do
-    ref
-    |> lookup_mission()
-    |> call_mission(message)
+  def stop(ref) when is_binary(ref) do
+    case lookup(ref) do
+      {:ok, pid} -> stop_pid(pid)
+      {:error, reason} -> {:error, reason}
+    end
   end
 
-  @spec runtime_opts(keyword()) :: keyword()
-  defp runtime_opts(opts), do: Keyword.get(opts, :runtime_opts, [])
+  def stop(_ref), do: {:error, :not_found}
 
-  @spec lookup_mission(binary()) :: {:ok, pid()} | {:error, :not_found}
-  defp lookup_mission(ref) do
-    if Process.whereis(SpectreDirective.Registry) do
-      case Registry.lookup(SpectreDirective.Registry, ref) do
+  @doc false
+  @spec await(pid() | binary(), timeout()) :: {:ok, Outcome.t()} | {:error, term()}
+  def await(ref, timeout \\ 60_000)
+  def await(ref, :infinity), do: do_await(ref, :infinity)
+
+  def await(ref, timeout) when is_integer(timeout) and timeout >= 0 do
+    do_await(ref, System.monotonic_time(:millisecond) + timeout)
+  end
+
+  def await(_ref, timeout), do: {:error, {:invalid_timeout, timeout}}
+
+  @spec call(pid() | binary(), term()) :: term()
+  defp call(ref, message) when is_pid(ref), do: safe_call(ref, message)
+
+  defp call(ref, message) when is_binary(ref) do
+    case lookup(ref) do
+      {:ok, pid} -> safe_call(pid, message)
+      {:error, reason} -> {:error, reason}
+    end
+  end
+
+  @spec call(term(), term()) :: {:error, :not_found}
+  defp call(_ref, _message), do: {:error, :not_found}
+
+  @spec safe_call(pid(), term()) :: term()
+  defp safe_call(pid, message) do
+    :gen_statem.call(pid, message)
+  catch
+    :exit, {:noproc, _details} -> {:error, :not_found}
+    :exit, {:normal, _details} -> {:error, :not_found}
+    :exit, reason -> {:error, {:runtime_exit, reason}}
+  end
+
+  @spec do_await(pid() | binary(), integer() | :infinity) ::
+          {:ok, Outcome.t()} | {:error, term()}
+  defp do_await(ref, deadline) do
+    case outcome(ref) do
+      {:ok, %Outcome{} = outcome} ->
+        {:ok, outcome}
+
+      {:ok, nil} ->
+        await_next_poll(ref, deadline)
+
+      {:error, reason} ->
+        {:error, reason}
+    end
+  end
+
+  @spec await_next_poll(pid() | binary(), integer() | :infinity) ::
+          {:ok, Outcome.t()} | {:error, term()}
+  defp await_next_poll(ref, deadline) do
+    if timed_out?(deadline) do
+      {:error, :timeout}
+    else
+      Process.sleep(20)
+      do_await(ref, deadline)
+    end
+  end
+
+  @spec timed_out?(integer() | :infinity) :: boolean()
+  defp timed_out?(:infinity), do: false
+  defp timed_out?(deadline), do: System.monotonic_time(:millisecond) >= deadline
+
+  @spec stop_pid(pid()) :: :ok | {:error, term()}
+  defp stop_pid(pid) do
+    if Process.whereis(@mission_supervisor) do
+      DynamicSupervisor.terminate_child(@mission_supervisor, pid)
+    else
+      {:error, :not_found}
+    end
+  end
+
+  @spec lookup(binary()) :: {:ok, pid()} | {:error, :not_found}
+  defp lookup(mission_id) do
+    if Process.whereis(@registry) do
+      case Registry.lookup(@registry, mission_id) do
         [{pid, _value}] -> {:ok, pid}
         [] -> {:error, :not_found}
       end
@@ -149,8 +179,6 @@ defmodule SpectreDirective.Runtime.MissionProcesses do
     end
   end
 
-  @spec call_mission({:ok, pid()} | {:error, :not_found}, term()) ::
-          {:ok, term()} | {:error, :not_found}
-  defp call_mission({:ok, pid}, message), do: :gen_statem.call(pid, message)
-  defp call_mission({:error, :not_found}, _message), do: {:error, :not_found}
+  @spec runtime_opts(keyword()) :: keyword()
+  defp runtime_opts(opts), do: Keyword.get(opts, :runtime_opts, [])
 end
