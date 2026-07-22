@@ -2,9 +2,9 @@ defmodule SpectreDirective.Trace.Entry do
   @moduledoc """
   A human-readable explanation of what changed and why.
 
-  Trace entries are not generic logs. They are the mission story: started,
-  recalled, skipped, paused, corrected, observed, finished. This is the surface
-  a human or monitor agent reads to understand why the plan moved.
+  Trace entries are not generic logs. They are the causal mission story: what
+  was requested, which information arrived, how the plan changed, and why the
+  mission stopped or completed.
   """
 
   alias SpectreDirective.ID
