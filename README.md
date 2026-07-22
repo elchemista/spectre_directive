@@ -1,58 +1,59 @@
-# SpectreDirective
+# Spectre Directive
 
-SpectreDirective is a self-correcting mission planner for Spectre agents.
+Spectre Directive is an embeddable mission loop for Elixir agents. Give it a
+mission and an optional plan; it repeatedly asks a reasoner what should happen
+next, emits explicit requests for effects or missing information, and keeps
+going until the mission completes, fails, or is cancelled.
 
-It is __NOT__ a workflow engine, task queue, command runner, browser automation
-library, or YAML-shaped workflow wrapper. It gives an agent a mission, keeps a living
-plan, checks whether each step still matters, and corrects direction when new
-information changes the situation.
+It works in four forms:
 
-The short version:
+- as a pure reducer with no processes or callbacks;
+- as an optional supervised OTP runtime;
+- inside an ordinary `GenServer`;
+- alongside `Spectre.Agent` through `use Spectre.Directive`.
 
-```text
-Mission
-  -> Knowledge
-  -> Capabilities
-  -> Plan
-  -> Step
-  -> Observation
-  -> Impact
-  -> Alignment
-  -> Correction
-  -> Trace / Pulse
-  -> Control
-```
+The package does **not** implement memory, retrieval, an LLM provider, tool
+discovery, Kinetic actions, persistence, or application policy. Those remain
+host concerns. Directive owns only the state and legal transitions of one live
+mission.
 
-The plan is not sacred. The plan is alive.
-
-## Why
-
-Agents are very good at producing motion. Sometimes that motion is useful.
-Sometimes it is a scenic tour through irrelevance.
-
-SpectreDirective exists to keep asking:
+## The contract
 
 ```text
-Given what we know now, should we still do this?
+                         ┌──────────────────────────────┐
+                         │ application / Agent / UI     │
+                         │ LLM, functions, policy, info │
+                         └──────────────┬───────────────┘
+                                        │ response
+                                        ▼
+mission ──► plan ──► current step ──► pure loop ──► correlated request
+               ▲                         │
+               └──── versioned patch ────┘
+                                        │
+                                        ▼
+                                    outcome
 ```
 
-That is the difference between a mission planner and a step runner. A step
-runner executes the next item. A mission planner checks whether the next item
-still serves the mission.
+The loop emits exactly one pending request at a time. Each request carries its
+mission id, request id, plan version, step id, and context revision. A delayed
+LLM or function result cannot mutate a newer request, plan, or step.
+
+Directive owns:
+
+- the mission, current plan, steps, and terminal outcome;
+- mission-local input, assigns, and collected information;
+- request correlation and deterministic state transitions;
+- guided confirmation and atomic, versioned plan patches;
+- an optional process per mission and supervised callback workers.
+
+The host owns:
+
+- model calls and provider-specific response parsing;
+- executable functions and symbolic tool-name resolution;
+- user questions, authorization policy, and application effects;
+- durable storage, recovery, retrieval, and external information.
 
 ## Installation
-
-For local Spectre development:
-
-```elixir
-def deps do
-  [
-    {:spectre_directive, github: "elchemista/spectre_directive"}
-  ]
-end
-```
-
-When published:
 
 ```elixir
 def deps do
@@ -62,650 +63,460 @@ def deps do
 end
 ```
 
-## Quick Start
-
-For an agent-created mission, use `SpectreDirective.create/1`:
+For local development with the sibling repositories:
 
 ```elixir
-{:ok, mission} =
-  SpectreDirective.create(%{
-    mission: "Make sure a new user can finish sign up",
-    context: "This is a release check. Do not use real customer data.",
-    success: "A test user reaches a valid post-signup state.",
-    capabilities: [
-      %{name: :observe_page, description: "Observe the current browser page."},
-      %{name: :fill_form, description: "Fill fields in a test form.", risk: :medium}
-    ],
-    mode: :guided,
-    model: &MyApp.ModelClient.complete/1
-  })
+def deps do
+  [
+    {:spectre, path: "../spectre"},
+    {:spectre_directive, path: "../spectre_directive"}
+  ]
+end
 ```
 
-`model` receives SpectreDirective's English planning prompts and returns normal
-text. No planner module is needed. With `mode: :guided`, the mission starts in
-manual guided planning. Your process asks for, accepts, edits, or rejects each
-planning item before execution begins.
+`spectre` is optional. A standalone or GenServer host does not need it.
 
-For reusable authored checks, use `use SpectreDirective`:
+## Quick start
+
+Author a reusable directive with ordinary Elixir values and functions:
 
 ```elixir
-defmodule MyApp.Directives.Signup do
-  use SpectreDirective
+defmodule MyApp.ClientLookup do
+  use Spectre.Directive
 
-  directive "signup-check" do
-    mission "Make sure a new user can finish sign up"
-    context "This is a release check. Do not use real customer data."
-    success "A test user reaches dashboard, onboarding, or a clear verification screen."
-    mode :guided
+  directive "client-lookup" do
+    mission "Find the requested client"
+    success "Return a verified client record"
+    mode :fixed
 
-    capabilities do
-      require_capability :observe_current_state
-      allow :form_fill
-      allow :screenshot
-      deny :real_payment
-    end
+    step "Read client data" do
+      purpose "Resolve the client from application-owned data"
 
-    strategies do
-      strategy :qa_flow
-      strategy :safe_operator
-    end
-
-    step "Observe signup entry" do
-      kind :observe
-      flexibility :guided
-      purpose "Understand the real signup options before acting"
-      expects "Visible signup methods, required fields, and possible blockers."
-    end
-
-    step "Verify mission result" do
-      kind :verify
-      flexibility :locked
-      purpose "Decide if the mission succeeded"
-      expects "Pass/fail result with evidence and blocker."
+      invoke fn context ->
+        client = MyApp.Clients.fetch!(context.input.client_id)
+        {:complete_mission, client}
+      end
     end
   end
 end
 ```
 
-Run it:
+Start it with the optional local runtime:
 
 ```elixir
-{:ok, mission} = SpectreDirective.start_directive(MyApp.Directives.Signup)
+{:ok, mission} =
+  Spectre.Directive.start_directive(MyApp.ClientLookup,
+    input: %{client_id: 42},
+    execution: :auto
+  )
 
-{:ok, pulse} = SpectreDirective.pulse(mission)
-{:ok, step} = SpectreDirective.next_step(mission)
-
-{:ok, pulse} =
-  SpectreDirective.complete_step(mission, %{
-    summary: "Signup form is visible and asks for email and password.",
-    facts: ["The public signup form loads."],
-    mission_relevant_facts: ["Primary signup path is available."],
-    impact: "The mission can continue through the normal signup path."
-  })
+{:ok, outcome} = Spectre.Directive.await(mission)
+outcome.status
+#=> :completed
 ```
 
-SpectreDirective lazily starts its runtime infrastructure. If your application
-wants supervision ownership, add it to your own tree:
+Anonymous DSL callbacks are compiled into functions on the directive module.
+For targets that must survive serialization or move between nodes, use a
+behaviour module or MFA instead.
+
+## Pure loop
+
+The pure API never calls an LLM, executes a function, or starts a process. A
+host stores the returned state and resolves each request itself.
+
+```elixir
+alias SpectreDirective.Request
+
+{:ok, loop} =
+  Spectre.Directive.new(
+    mission: "Research Acme",
+    success: "Return a sourced summary",
+    mode: :autonomous
+  )
+
+{:request, %Request{kind: :reason} = plan_request, loop} =
+  Spectre.Directive.next(loop)
+
+{:request, %Request{kind: :reason} = step_request, loop} =
+  Spectre.Directive.respond(loop, plan_request.id, {
+    :propose_plan,
+    [%{title: "Read the supplied client page"}]
+  })
+
+# Information can arrive between any two reasoning turns.
+{:ok, loop} =
+  Spectre.Directive.inform(loop, %{url: "https://example.test/acme"},
+    source: :application
+  )
+
+# The previous reasoning request is now stale; next/1 emits a fresh one whose
+# context includes the new information.
+{:request, %Request{kind: :reason} = refreshed, loop} =
+  Spectre.Directive.next(loop)
+
+read_page = fn context ->
+  url = context.last_result.url
+  {:complete_mission, MyApp.Pages.read(url)}
+end
+
+{:request, %Request{kind: :invoke} = invocation, loop} =
+  Spectre.Directive.respond(loop, refreshed.id, {:invoke, read_page})
+
+result = Spectre.Directive.Invoker.call(invocation.target, invocation.context)
+
+{:done, outcome, _loop} =
+  Spectre.Directive.respond(loop, invocation.id, result)
+```
+
+Use the pure form when another runtime already owns scheduling or persistence.
+The state can live in a GenServer, a Spectre flow, a database-backed process,
+or a test without changing the protocol.
+
+## Reasoner decisions
+
+A reasoner receives `%SpectreDirective.Context{}` and returns one decision.
+Tuple forms are convenient for Elixir callbacks; equivalent atom- or
+string-keyed maps are accepted for decoded LLM output.
+
+| Decision | Meaning |
+| --- | --- |
+| `{:propose_plan, steps}` | Propose the initial plan |
+| `{:invoke, target}` | Ask the host/runtime to execute a trusted target |
+| `{:ask, question}` | Wait for application or user information |
+| `{:ask_policy, requirement}` | Ask the host to authorize an opaque requirement |
+| `{:propose_patch, patch, info}` | Correct the current versioned plan |
+| `{:complete_step, result}` | Record the step result and continue |
+| `{:complete_mission, result}` | Finish successfully |
+| `{:blocked, reason}` | Turn a blocker into a question boundary |
+
+A provider-neutral description is available at runtime:
+
+```elixir
+Spectre.Directive.protocol()
+Spectre.Directive.reasoning_input(context)
+```
+
+Implement a stable reasoner adapter with the public behaviour:
+
+```elixir
+defmodule MyApp.MissionReasoner do
+  @behaviour Spectre.Directive.Reasoner
+
+  @impl Spectre.Directive.Reasoner
+  def decide(context, opts) do
+    context
+    |> Spectre.Directive.reasoning_input()
+    |> MyApp.LLM.complete(opts)
+  end
+end
+```
+
+The return value from `MyApp.LLM.complete/2` must be one of the decision forms
+above. Directive deliberately does not prescribe an SDK or model provider.
+
+## Invocations
+
+An invocation receives a read-only `%SpectreDirective.Context{}`. It cannot
+mutate mission state directly; its return value requests the transition.
+
+Supported targets are:
+
+```elixir
+fn context -> result end
+MyApp.ReadPage
+{MyApp.ReadPage, timeout: 5_000}
+{MyApp.Pages, :read}
+{MyApp.Pages, :read, [extra_argument]}
+```
+
+A module target implements `Spectre.Directive.Invoker`:
+
+```elixir
+defmodule MyApp.ReadPage do
+  @behaviour Spectre.Directive.Invoker
+
+  @impl Spectre.Directive.Invoker
+  def invoke(context, opts) do
+    page = MyApp.HTTP.get!(context.input.url, opts)
+    {:inform, %{page: page}}
+  end
+end
+```
+
+Invocation return values are normalized as follows:
+
+| Return | Transition |
+| --- | --- |
+| `{:inform, value}` or `{:ok, value}` | Add information and reason again |
+| `{:complete_step, result}` | Complete the current step |
+| `{:complete_mission, result}` | Complete the mission |
+| `{:propose_patch, patch, info}` | Add information and propose a plan change |
+| `{:ask, question}` | Emit a question request |
+| `{:error, reason}` | Record the error and let the reasoner recover |
+
+In the OTP runtime, reasoners, invocations, policies, and generic request
+handlers execute in supervised, unlinked tasks. The mission process applies a
+worker result only if it still matches the active request.
+
+## Authored DSL
+
+```elixir
+defmodule MyApp.ResearchDirective do
+  use Spectre.Directive
+
+  directive "client-research" do
+    mission "Research the client"
+    context "Use only sources supplied by the application"
+    success "Produce a sourced summary"
+    mode :guided
+    directive_metadata %{owner: :sales}
+
+    step "Read client page" do
+      kind :investigate
+      flexibility :guided
+      purpose "Collect public client information"
+      reason "The summary must be grounded in a primary source"
+      prompt "Extract identity, products, and visible claims"
+      expects "A structured page summary"
+      done_when "The relevant page facts are available"
+      risk :low
+      input %{section: :about}
+      metadata %{source_type: :web}
+      policy :external_read
+      invoke {MyApp.ReadPage, url: "https://example.test"}
+    end
+
+    step "Write summary" do
+      purpose "Answer the mission from collected information"
+    end
+
+    on_complete {MyApp.StoreReport, []}
+  end
+end
+```
+
+A module may define multiple named directives. `start_directive/2` uses the
+first one unless `directive: "name"` is supplied.
+
+The plan modes are:
+
+| Mode | Generated plan changes |
+| --- | --- |
+| `:fixed` | Rejected; use an authored plan |
+| `:guided` | Emitted as `:confirmation` requests |
+| `:autonomous` | Applied immediately when valid |
+
+Guided confirmations accept `:accept`, `{:accept, edited}`, `{:edit, edited}`,
+or `{:reject, reason}`. Plan patches are atomic and correlated to the current
+plan version. Supported operations are `:add`, `:insert_after`, `:remove`,
+`:replace`, `:skip`, and `:reorder`.
+
+## Optional OTP runtime
+
+Start a mission with automatic callback execution:
+
+```elixir
+{:ok, mission} =
+  Spectre.Directive.start_mission("Research Acme",
+    reasoner: MyApp.MissionReasoner,
+    reasoner_opts: [model: "my-model"],
+    execution: :auto,
+    policy_handler: MyApp.Policy,
+    request_handler: MyApp.Questions,
+    subscribers: [self()],
+    request_timeout: 30_000
+  )
+```
+
+Or set `execution: :manual`, subscribe, and resolve requests explicitly:
+
+```elixir
+receive do
+  {:spectre_directive, mission_id, :request, request} ->
+    answer = MyApp.Runtime.resolve(request)
+    Spectre.Directive.respond(mission_id, request.id, answer)
+end
+```
+
+Runtime events have one stable envelope:
+
+```elixir
+{:spectre_directive, mission_id, event, payload}
+```
+
+Events are `:request`, `:information`, `:assigned`, `:trace`, `:error`, and
+`:outcome`. `subscribe/2` immediately sends the current request or outcome, so
+a newly attached UI can resume at the live boundary.
+
+The runtime starts lazily, or can be placed in an application supervision tree:
 
 ```elixir
 children = [
-  SpectreDirective
+  Spectre.Directive
 ]
 ```
 
-## Connecting An AI Model
-
-SpectreDirective does not call OpenAI, Anthropic, Ollama, or any other model
-provider directly. That is intentional. The library is the mission planner and
-state machine. Your application owns the model calls.
-
-There are two model moments:
-
-- Planning: the model can create the initial plan and steps.
-- Execution: the model can complete each selected step and report observations.
-
-For AI-created plans, the small path is `create/1`:
-
-```elixir
-{:ok, mission} =
-  SpectreDirective.create(%{
-    mission: "Check the signup flow",
-    context: "Release QA",
-    capabilities: [:observe_page, :fill_form],
-    mode: :guided,
-    model: &MyApp.ModelClient.complete/1
-  })
-```
-
-The function receives an English prompt and returns English planning text.
-No planner module is required for that.
-
-Use draft planning when one full plan is enough:
-
-```elixir
-{:ok, mission} =
-  SpectreDirective.create(%{
-    mission: "Check the signup flow",
-    model: &MyApp.ModelClient.complete/1,
-    planning_mode: :draft
-  })
-```
-
-Use guided planning when the model should think one piece at a time:
-
-```elixir
-{:ok, mission} =
-  SpectreDirective.create(%{
-    mission: "Check the signup flow",
-    model: &MyApp.ModelClient.complete/1,
-    planning_mode: :guided,
-    planning_subscribers: [self()]
-  })
-```
-
-Guided planning is manual by design. Drive it from a LiveView, GenServer, CLI,
-or another model process:
-
-```elixir
-{:ok, proposal} = SpectreDirective.propose_plan_item(mission)
-{:ok, planning} = SpectreDirective.accept_plan_item(mission)
-
-{:ok, proposal} = SpectreDirective.propose_plan_item(mission)
-{:ok, planning} =
-  SpectreDirective.accept_plan_item(mission, %{
-    type: :step,
-    step: %{title: "Observe signup", kind: :observe, purpose: "Inspect the visible flow."}
-  })
-
-{:ok, pulse} = SpectreDirective.finish_planning(mission)
-```
-
-Any process can also submit a proposal directly:
-
-```elixir
-SpectreDirective.submit_plan_item(mission, %{
-  type: :strategy,
-  strategy: "Observe first, then verify with evidence."
-})
-```
-
-For larger applications, you can still implement `SpectreDirective.Planner`:
-
-```elixir
-defmodule MyApp.DirectivePlanner do
-  @behaviour SpectreDirective.Planner
-
-  @impl SpectreDirective.Planner
-  def draft_plan(request, _opts) do
-    MyApp.ModelClient.complete(request.prompt)
-  end
-end
-```
-
-In both modes, the model is asked for normal planning text, not a data blob:
-
 ```text
-Strategy: inspect the real signup path before acting.
-
-Plan:
-1. Observe signup entry
-   kind: observe
-   purpose: Understand the available signup options.
-   expects: Visible methods, required fields, and blockers.
-   capability: observe_page
-   flexibility: guided
-
-2. Verify signup result
-   kind: verify
-   purpose: Decide whether the signup path satisfies the release check.
-   expects: Pass/fail result with evidence.
-   flexibility: locked
+SpectreDirective.Runtime.Supervisor
+├── Registry
+├── DynamicSupervisor
+│   └── MissionMachine (one per mission)
+└── Task.Supervisor
+    └── reasoner / invocation / policy workers
 ```
 
-Planning runs after memory recall and capability discovery, so the model can
-plan with what the mission already knows and what the agent can actually do.
-SpectreDirective parses the textual draft into real steps. If the draft cannot
-be parsed, it falls back to the existing authored or emergent plan and records
-that in the trace.
+Use `pulse/1` for a compact status, `state/1` for the complete loop,
+`request/1`, `plan/1`, `context/1`, `trace/1`, and `outcome/1` for focused
+views. `pause/1`, `resume/1`, `cancel/2`, `stop/1`, and `await/2` manage the
+mission lifecycle.
 
-Execution is the second loop. The host app owns model and tool execution;
-SpectreDirective owns mission state, planning state, alignment requests,
-corrections, control, pulse, and trace:
+## Spectre Agent integration
 
-```text
-pulse -> next_step -> knowledge/capabilities
-  -> host model/tools/assertions
-  -> complete_step
-  -> repeat
-```
-
-In code, that can look like this:
+`Spectre.Directive` detects an Agent at compile time. Put `use Spectre.Agent`
+first so Directive can add its private reasoning route to the Agent's normal
+DSL compilation:
 
 ```elixir
-defmodule MyApp.DirectiveAgent do
-  @terminal [:finished, :stopped, :aborted]
+defmodule MyApp.ResearchAgent do
+  use Spectre.Agent,
+    model: MyApp.Models.default()
 
-  def run(directive_module, opts \\ []) do
-    {:ok, mission} = SpectreDirective.start_directive(directive_module, opts)
-    loop(mission, opts)
+  use Spectre.Directive
+
+  directive "client-research" do
+    mission "Research the client"
+    success "Return a sourced summary"
+    mode :guided
   end
 
-  defp loop(mission, opts) do
-    {:ok, pulse} = SpectreDirective.pulse(mission)
-
-    if pulse.status in @terminal do
-      {:ok, pulse}
-    else
-      {:ok, step} = SpectreDirective.next_step(mission)
-      {:ok, knowledge} = SpectreDirective.knowledge(mission)
-      {:ok, capabilities} = SpectreDirective.capabilities(mission)
-
-      observation =
-        MyApp.AIModel.complete_step(%{
-          mission: mission,
-          pulse: pulse,
-          step: step,
-          knowledge: knowledge,
-          capabilities: capabilities,
-          tools: Keyword.get(opts, :tools, [])
-        })
-
-      {:ok, _pulse} = SpectreDirective.complete_step(mission, observation)
-      loop(mission, opts)
-    end
+  @impl Spectre.Directive.Handler
+  def handle_directive({:invocation, "read_page"}, _context) do
+    {:ok, &MyApp.Pages.read_from_directive/1}
   end
+
+  def handle_directive(message, context), do: super(message, context)
 end
 ```
 
-The model adapter is normal host-application code:
-
-```elixir
-defmodule MyApp.AIModel do
-  def complete_step(%{
-        step: step,
-        pulse: pulse,
-        knowledge: knowledge,
-        capabilities: capabilities,
-        tools: tools
-      }) do
-    response =
-      MyApp.ModelClient.respond(%{
-        system: "You are executing one SpectreDirective mission step.",
-        mission: pulse.mission,
-        current_step: step,
-        known_facts: knowledge.known_facts,
-        capabilities: capabilities.capabilities,
-        tools: tools
-      })
-
-    %{
-      summary: response.summary,
-      facts: response.facts,
-      mission_relevant_facts: response.mission_relevant_facts,
-      evidence: response.evidence,
-      impact: response.impact,
-      correction: response.correction || :continue,
-      confidence: response.confidence,
-      raw: response
-    }
-  end
-end
-```
-
-Capability adapters tell SpectreDirective what the agent is allowed to do.
-The model runner decides when to use those capabilities and returns what
-happened. That separation keeps this library independent from every model SDK
-while still making it easy to plug into any agent stack.
-
-## Emergent Missions
-
-You do not need an authored directive when the route is unknown:
+Start through the generated Agent API:
 
 ```elixir
 {:ok, mission} =
-  SpectreDirective.start_mission("Analyze a GitHub profile for React frontend fit",
-    context: "Backend evidence is secondary; React/frontend evidence is primary.",
-    success: "Concise fit summary with evidence and uncertainty.",
-    mode: :adaptive
+  MyApp.ResearchAgent.start_directive("client-research",
+    input: %{url: "https://example.test/acme"},
+    subscribers: [self()]
   )
 ```
 
-This creates a conservative skeleton plan:
+By default, reasoning uses the model configuration already carried by the
+Spectre turn. Override `handle_directive({:reason, context}, spectre_context)`
+to use a custom reasoner.
 
-```text
-remember -> observe -> investigate -> verify -> summarize
-```
+An LLM may name an invocation, but it may not invent executable BEAM code.
+Every generated string target is passed to
+`handle_directive({:invocation, target}, context)` and must be resolved by the
+host to a trusted function, module, or MFA. Unresolved targets fail closed.
 
-It is a first guess, not a prophecy. First guesses are allowed to be wrong. That
-is why the correction loop exists.
+The adapter references Spectre dynamically, so this package still compiles and
+runs when Spectre is absent. JSON model responses require `Jason` to be
+available in the host application.
 
-## DSL Validation
+## GenServer integration
 
-Authored directives fail at compile time when the basics are missing:
-
-```text
-mission is required
-context is required
-success is required
-at least one step is required
-each step needs a purpose
-kind, flexibility, and risk must be known values
-```
-
-No silent empty mission. No mystery plan with zero steps. Runtime has enough
-uncertainty already.
-
-## Runtime Loop
-
-The mission loop is host-owned:
-
-```text
-pulse
-next_step
-knowledge + capabilities
-host model/tool/assertion execution
-complete_step
-repeat
-```
-
-Inside SpectreDirective, each turn updates the living mission:
-
-```text
-recall memory -> discover capabilities -> load/create plan
-pre-step alignment -> selected step
-observation -> impact -> knowledge -> correction
-post-step alignment -> trace/pulse/control state
-```
-
-Two checks matter most:
-
-- Before a step: is this still worth doing?
-- After a step: what changed because of what we learned?
-
-That tiny hesitation before blindly doing the next thing is the library.
-
-Status handling is deliberately plain OTP state:
-
-- `:planning` means manual guided planning is still open. Use
-  `propose_plan_item/2`, `submit_plan_item/2`, `accept_plan_item/2`,
-  `reject_plan_item/2`, and `finish_planning/2`.
-- `:waiting` means alignment paused on risk or approval. Use `control/2` with
-  `:approve`, `:reject`, `:stop`, or `{:revise_plan, correction}`.
-- `:blocked` means alignment needs more context, an answer, or plan revision.
-  A human, GenServer, LiveView, CLI, or another AI process can call
-  `control(ref, {:revise_plan, correction})`.
-- `:paused` is explicit host control. Use `control(ref, :resume)` to continue.
-- `:finished`, `:stopped`, and `:aborted` are terminal.
-
-## Public API
+Put `use GenServer` before `use Spectre.Directive`. Directive generates
+`start_directive/3`, routes its runtime messages through `handle_directive/2`,
+and leaves the mission state isolated in its own supervised process.
 
 ```elixir
-SpectreDirective.create(attrs)
-SpectreDirective.start_mission(mission, opts \\ [])
-SpectreDirective.start_directive(module_or_blueprint, opts \\ [])
-SpectreDirective.pulse(ref)
-SpectreDirective.trace(ref)
-SpectreDirective.plan(ref)
-SpectreDirective.knowledge(ref)
-SpectreDirective.capabilities(ref)
-SpectreDirective.planning_state(ref)
-SpectreDirective.propose_plan_item(ref, opts \\ [])
-SpectreDirective.submit_plan_item(ref, proposal)
-SpectreDirective.accept_plan_item(ref, item_or_edit \\ :pending)
-SpectreDirective.reject_plan_item(ref, reason)
-SpectreDirective.finish_planning(ref, reason \\ nil)
-SpectreDirective.next_step(ref)
-SpectreDirective.complete_step(ref, observation)
-SpectreDirective.apply_observation(ref, observation)
-SpectreDirective.control(ref, action)
-SpectreDirective.await(ref, timeout \\ 60_000)
-```
+defmodule MyApp.MissionHost do
+  use GenServer
+  use Spectre.Directive
 
-`ref` can be a mission process pid or mission id.
-
-## Pulse And Trace
-
-`pulse/1` is the live meaning snapshot:
-
-```elixir
-%SpectreDirective.Pulse{
-  mission: "Analyze a GitHub profile for React frontend fit",
-  status: :running,
-  current_step: %SpectreDirective.Step{title: "Search frontend evidence"},
-  current_understanding: "Backend evidence is strong; React evidence is not yet found.",
-  alignment: %SpectreDirective.Alignment.Result{status: :aligned},
-  risk: :low,
-  blocked?: false,
-  next_expected_action: "continue: Search frontend evidence",
-  controls: [:pause, :stop, :retry, :skip, :revise_plan, :finish_early]
-}
-```
-
-`trace/1` is the readable mission story. Logs say what happened. Trace explains
-why it mattered.
-
-## Core Concepts
-
-- `Mission` is the goal, context, success criteria, status, risk boundaries, and
-  memory scope.
-- `Knowledge` is layered: known facts, assumptions, observations, derived facts,
-  mission-relevant facts, low-relevance facts, decisions, confidence, and open
-  questions.
-- `Capability` is something the mission can realistically do now, not just a
-  function name in a tool list.
-- `Plan` is the current strategy. It is versioned because correction is normal.
-- `Step` is intent plus action shape: kind, purpose, reason, expected output,
-  done condition, risk, required capability, status, and flexibility.
-- `Observation` says what happened.
-- `Impact` says why it matters.
-- `Correction` says what should change.
-- `Pulse` says what is happening now.
-- `Trace` says why the mission moved.
-
-The useful distinction is this: true and useful are not the same word. A fact
-can be accurate and still be low-value for the current mission.
-
-Mission states:
-
-```text
-planning
-running
-paused
-waiting
-blocked
-finished
-stopped
-aborted
-```
-
-The runtime is a state machine because missions actually have states, not
-because state machines look important in diagrams.
-
-## Corrections
-
-Correction types:
-
-```text
-continue
-skip_step
-remove_steps
-add_step
-replace_step
-reorder_steps
-narrow_scope
-expand_scope
-ask_user
-wait
-retry
-delegate
-finish_early
-abort
-```
-
-Correction strategies:
-
-```text
-tactical
-strategic
-scope
-evidence
-cost
-risk
-confidence
-drift
-```
-
-Example:
-
-```elixir
-SpectreDirective.complete_step(mission, %{
-  summary: "The active repositories are mostly backend Elixir libraries.",
-  mission_relevant_facts: ["React/frontend evidence is weak."],
-  impact: "This lowers confidence in React frontend fit.",
-  correction: %{
-    type: :finish_early,
-    strategy: :confidence,
-    reason: "Enough evidence exists to answer the mission."
-  }
-})
-```
-
-Do not inspect twenty more backend repositories just because the plan was
-written before the evidence arrived. That is how agents become very busy and not
-very helpful.
-
-## Integrations
-
-SpectreDirective has five integration boundaries. The host app composes them:
-planner/model for plan text, alignment for model-backed judgment, capability
-adapters for available tools, memory adapters for recall/remember, and the host
-executor for actual model/tool/assertion execution. SpectreDirective does not
-run your tools; it keeps the mission state coherent while your app drives them.
-
-Alignment modules implement `SpectreDirective.Alignment`:
-
-```elixir
-defmodule MyApp.SpectreDirective.Alignment do
-  @behaviour SpectreDirective.Alignment
-
-  alias SpectreDirective.Alignment.Result
-
-  @impl SpectreDirective.Alignment
-  def check_alignment(request, _opts) do
-    # Send request.prompt, or the structured request fields, to your model.
-    # Then map the model judgment into an Alignment.Result.
-    MyApp.Model.align(request.prompt)
-    |> case do
-      {:ok, %{safe?: true, reason: reason}} ->
-        Result.new(
-          status: :aligned,
-          recommendation: :continue,
-          check: :mission_relevance,
-          reason: reason
-        )
-
-      {:ok, %{action: :pause, reason: reason}} ->
-        Result.new(
-          status: :risky,
-          recommendation: :pause,
-          check: :risk,
-          reason: reason
-        )
-    end
-  end
-end
-
-SpectreDirective.start_mission("Check signup",
-  alignment: MyApp.SpectreDirective.Alignment
-)
-```
-
-You can also configure a default:
-
-```elixir
-config :spectre_directive,
-  alignment: MyApp.SpectreDirective.Alignment
-```
-
-Memory adapters implement `SpectreDirective.MemoryStore`:
-
-```elixir
-defmodule MyApp.SpectreDirective.MnemonicAdapter do
-  @behaviour SpectreDirective.MemoryStore
-
-  alias SpectreDirective.Mission
-
-  @impl SpectreDirective.MemoryStore
-  def recall(%Mission{} = mission, opts) do
-    SpectreMnemonic.recall(mission.goal, Keyword.put_new(opts, :scope, mission.memory_scope))
+  directive "research" do
+    mission "Research the client"
+    mode :guided
   end
 
-  @impl SpectreDirective.MemoryStore
-  def remember(record, opts) do
-    SpectreMnemonic.remember(record, opts)
+  @impl GenServer
+  def init(state), do: {:ok, state}
+
+  @impl Spectre.Directive.Handler
+  def handle_directive({:request, mission_id, request}, state) do
+    response = MyApp.Runtime.resolve(request)
+    Spectre.Directive.respond(mission_id, request.id, response)
+    {:noreply, state}
   end
+
+  def handle_directive({:outcome, mission_id, outcome}, state) do
+    {:noreply, Map.put(state, mission_id, outcome)}
+  end
+
+  def handle_directive(message, state), do: super(message, state)
 end
 ```
 
-Capability adapters implement `SpectreDirective.CapabilityProvider`:
-
 ```elixir
-defmodule MyApp.SpectreDirective.LensAdapter do
-  @behaviour SpectreDirective.CapabilityProvider
+{:ok, server} = GenServer.start_link(MyApp.MissionHost, %{})
 
-  alias SpectreDirective.Capability
-  alias SpectreDirective.MissionBlueprint
-
-  @impl SpectreDirective.CapabilityProvider
-  def discover(%MissionBlueprint{}, _opts) do
-    [
-      Capability.new(
-        name: :observe_page,
-        description: "Observe a browser page through SpectreLens.",
-        source: :spectre_lens,
-        risk: :low
-      )
-    ]
-  end
-end
-```
-
-Use adapters at mission start:
-
-```elixir
 {:ok, mission} =
-  SpectreDirective.start_mission("Check signup",
-    memory_adapter: MyApp.SpectreDirective.MnemonicAdapter,
-    capability_adapters: [
-      MyApp.SpectreDirective.KineticAdapter,
-      MyApp.SpectreDirective.LensAdapter
-    ],
-    kinetic: kinetic_runtime
+  MyApp.MissionHost.start_directive(server, "research",
+    execution: :manual
   )
 ```
 
-When a human supervisor or AI reviewer needs to repair a blocked plan, use a
-normal correction through control:
+If the module owns a custom `handle_info/2`, call the generated
+`directive_handle_info/2` from its Directive clause. Pass
+`gen_server_handler: false` to `use Spectre.Directive` when installing all
+message routing manually.
+
+Both Agent and GenServer hosts use the same callback name:
 
 ```elixir
-SpectreDirective.control(mission, {
-  :revise_plan,
-  %{
-    type: :remove_steps,
-    strategy: :strategic,
-    reason: "The reviewer removed a stale blocked step.",
-    changes: %{matching: "obsolete verification"}
-  }
-})
+handle_directive({:reason, context}, host_context)
+handle_directive({:invocation, target}, context)
+handle_directive({event, mission_id, payload}, gen_server_state)
 ```
 
-Generate starter adapters in a host app:
+## Adding information while a mission runs
+
+`inform/3` appends mission-local information; `assign/2` merges
+application-owned values. Both increment the context revision and make the new
+values visible to every later reasoner and invocation.
+
+If either call arrives during a `:reason` request, Directive invalidates that
+request and emits a replacement using the newer context. A response to the old
+request returns a stale-response error. Active invocation and policy requests
+are not cancelled because they may already represent application effects.
+
+Information is a chronological list for the current mission only. Directive
+does not retrieve, rank, persist, or reuse it across missions. Applications
+that need those features can inject their own retrieved data through
+`inform/3` or the initial `information:` option.
+
+## Design boundaries
+
+- No provider SDK is required. Reasoners are functions or behaviour modules.
+- No tool language is required. Invocations are functions, modules, or MFAs.
+- No persistence format is imposed. Use the pure state when persistence is a
+  host responsibility.
+- No memory layer exists. Mission-local information disappears with the live
+  state unless the host stores it.
+- No Kinetic integration exists. A Kinetic interpreter can still be called by
+  an application invocation like any other function.
+- No arbitrary LLM target is executed. Symbolic Agent targets cross an
+  explicit host trust boundary.
+
+## Development
 
 ```bash
-mix spectre_directive.gen.integration
-mix spectre_directive.gen.integration --only mnemonic,lens
+mix deps.get
+mix format --check-formatted
+mix compile --warnings-as-errors
+mix test
+mix credo suggest "lib/**/*.ex" --strict
+mix dialyzer
+mix docs
 ```
 
-The generated modules live in your app namespace. SpectreDirective does not ship
-compiled dependencies on SpectreMnemonic, SpectreLens, or SpectreKinetic. That
-boundary is deliberate: imagination on one side, consequences on the other.
+The implementation roadmap and architectural decisions are in
+[`PLAN.md`](PLAN.md).
