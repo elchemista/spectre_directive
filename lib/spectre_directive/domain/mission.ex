@@ -1,55 +1,57 @@
 defmodule SpectreDirective.Mission do
   @moduledoc """
-  The high-level thing a directive is trying to achieve.
+  The objective and completion contract for one mission-loop run.
+
+  A mission contains durable intent, not execution state owned by callbacks.
+  Live status is advanced only by `SpectreDirective.Loop.Engine`.
   """
 
   alias SpectreDirective.ID
 
   @type status ::
           :draft
-          | :planning
           | :running
-          | :paused
           | :waiting
+          | :paused
           | :blocked
-          | :finished
-          | :stopped
-          | :aborted
+          | :completed
+          | :failed
+          | :cancelled
 
   @type t :: %__MODULE__{
           id: binary(),
-          goal: binary(),
-          context: binary() | nil,
-          success_criteria: binary() | nil,
+          goal: term(),
+          context: term(),
+          success_criteria: term(),
           constraints: [term()],
           risk_boundaries: [term()],
-          memory_scope: term(),
           status: status(),
           metadata: map()
         }
+
+  @type executable_t :: %__MODULE__{goal: binary()}
 
   defstruct [
     :id,
     :goal,
     :context,
     :success_criteria,
-    :memory_scope,
     status: :draft,
     constraints: [],
     risk_boundaries: [],
     metadata: %{}
   ]
 
-  @doc """
-  Builds a mission from a goal, attribute map, keyword list, or existing mission.
-  """
+  @doc "Builds a mission from a goal, attributes, or an existing mission."
   @spec new(binary() | map() | keyword() | t(), keyword()) :: t()
   def new(mission, opts \\ [])
 
   def new(%__MODULE__{} = mission, opts) do
-    mission
-    |> Map.put(:id, mission.id || Keyword.get(opts, :id) || ID.new("mission"))
-    |> Map.put(:status, Keyword.get(opts, :status, mission.status || :draft))
+    %{
+      mission
+      | id: mission.id || Keyword.get(opts, :id) || ID.new("mission"),
+        status: Keyword.get(opts, :status, mission.status || :draft)
+    }
   end
 
   def new(goal, opts) when is_binary(goal) do
@@ -57,10 +59,9 @@ defmodule SpectreDirective.Mission do
       %__MODULE__{
         goal: goal,
         context: Keyword.get(opts, :context),
-        success_criteria: Keyword.get(opts, :success),
+        success_criteria: Keyword.get(opts, :success) || Keyword.get(opts, :success_criteria),
         constraints: List.wrap(Keyword.get(opts, :constraints, [])),
         risk_boundaries: List.wrap(Keyword.get(opts, :risk_boundaries, [])),
-        memory_scope: Keyword.get(opts, :memory_scope),
         metadata: Map.new(Keyword.get(opts, :metadata, %{}))
       },
       opts
@@ -73,12 +74,11 @@ defmodule SpectreDirective.Mission do
     new(
       %__MODULE__{
         id: attr(attrs, :id),
-        goal: attr(attrs, :goal),
+        goal: attr(attrs, [:goal, :mission, :objective]),
         context: attr(attrs, :context),
         success_criteria: attr(attrs, [:success_criteria, :success]),
         constraints: List.wrap(attr(attrs, :constraints, [])),
         risk_boundaries: List.wrap(attr(attrs, :risk_boundaries, [])),
-        memory_scope: attr(attrs, :memory_scope),
         status: attr(attrs, :status, :draft),
         metadata: Map.new(attr(attrs, :metadata, %{}))
       },
@@ -94,6 +94,9 @@ defmodule SpectreDirective.Mission do
   end
 
   defp attr(attrs, key, default) when is_atom(key) do
-    Map.get(attrs, key) || Map.get(attrs, Atom.to_string(key)) || default
+    case Map.fetch(attrs, key) do
+      {:ok, value} -> value
+      :error -> Map.get(attrs, Atom.to_string(key), default)
+    end
   end
 end
