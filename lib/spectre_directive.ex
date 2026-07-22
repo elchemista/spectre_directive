@@ -1,163 +1,174 @@
 defmodule SpectreDirective do
   @moduledoc """
-  Self-correcting mission planner for Spectre agents.
+  Embeddable, self-correcting mission and plan loop.
 
-  `use SpectreDirective` is the public mission-authoring surface. Runtime APIs
-  start, inspect, control, and complete living missions.
+  The pure API emits correlated requests and applies responses without running
+  application code:
 
-  SpectreDirective is intentionally mission-first. It does not model a fixed
-  workflow that blindly runs step 1, step 2, and step 3. It keeps a living plan
-  and asks, before and after each step, whether the next action still serves the
-  mission.
+      {:ok, loop} = SpectreDirective.new(mission: "Research the client")
+      {:request, request, loop} = SpectreDirective.next(loop)
+      {:request, next_request, loop} =
+        SpectreDirective.respond(loop, request.id, {:propose_plan, steps})
 
-  ## Authoring
-
-      defmodule MyApp.Directives.Signup do
-        use SpectreDirective
-
-        directive "signup-check" do
-          mission "Make sure a new user can finish sign up"
-          context "This is a release check."
-          success "A test user reaches a valid post-signup state."
-          mode :guided
-
-          step "Observe signup entry" do
-            kind :observe
-            purpose "Understand the real signup options before acting"
-          end
-        end
-      end
-
-  ## Running
+  The optional OTP runtime can execute configured reasoners and invocation
+  targets in supervised tasks, or leave every request to the host:
 
       {:ok, mission} =
-        SpectreDirective.create(%{
-          mission: "Make sure a new user can finish sign up",
-          context: "This is a release check.",
-          success: "A test user reaches a valid post-signup state.",
-          capabilities: [:observe_page, :fill_form],
-          mode: :guided,
-          model: &MyApp.Model.complete/1
-        })
+        SpectreDirective.start_mission("Research the client",
+          reasoner: MyApp.Agent,
+          execution: :auto,
+          subscribers: [self()]
+        )
 
-  Reusable authored directives can still be started directly:
+  For authored directives, prefer the public Spectre-shaped entry point:
 
-      {:ok, mission} = SpectreDirective.start_directive(MyApp.Directives.Signup)
-      {:ok, step} = SpectreDirective.next_step(mission)
+      defmodule MyApp.ClientResearch do
+        use Spectre.Directive
 
-      {:ok, pulse} =
-        SpectreDirective.complete_step(mission, %{
-          summary: "Signup form is visible.",
-          mission_relevant_facts: ["The primary signup path exists."],
-          impact: "The release check can continue."
-        })
-
-  ## Runtime shape
-
-  A mission moves through:
-
-      Mission -> Knowledge -> Capabilities -> Plan -> Step
-      -> Observation -> Impact -> Alignment -> Correction -> Pulse/Trace
-
-  `pulse/1` is the live status snapshot. `trace/1` is the readable story of why
-  the mission moved, paused, skipped, corrected, or finished.
-
-  ## AI model connection
-
-  SpectreDirective does not depend on a model SDK. A host application connects
-  model-backed intelligence in three places:
-
-    * initial planning through `create(%{model: &MyApp.Model.complete/1})`, or a
-      richer `SpectreDirective.Planner` module when the app needs one
-    * alignment through a module that implements `SpectreDirective.Alignment`
-      and is passed as `alignment: MyApp.Alignment`
-    * step execution through an agent loop around the public API
-
-  A planning model receives an English prompt and returns English planning text.
-  With `planning_mode: :draft`, the model writes the whole initial plan. With
-  `planning_mode: :guided`, the mission starts in manual guided planning and
-  waits for explicit proposal, accept, reject, and finish calls. The model does
-  not need to emit JSON or host-language maps.
-
-    * call `next_step/1`
-    * send the mission pulse, knowledge, capabilities, and step to the model
-    * let the model use host-application tools
-    * call `complete_step/2` with an observation map
-
-  Capability adapters advertise what tools or integrations are available.
-  The host application's model runner decides which tool to call and translates
-  the model result into an observation, impact, and optional correction.
+        directive "client-research" do
+          mission "Research the client"
+        end
+      end
   """
 
+  alias SpectreDirective.DSL.Builder
+  alias SpectreDirective.Integration
+  alias SpectreDirective.Loop.Engine
+  alias SpectreDirective.Loop.State, as: LoopState
+  alias SpectreDirective.Mission
   alias SpectreDirective.MissionBlueprint
-  alias SpectreDirective.Pulse
   alias SpectreDirective.Runtime.MissionProcesses
 
-  defmacro __using__(_opts) do
-    quote do
-      alias SpectreDirective.DSL.Builder
+  @type mission_ref :: pid() | binary()
+  @type runtime_result(value) :: {:ok, value} | {:error, term()}
 
+  @doc "Imports the authored Directive DSL and installs the detected host integration."
+  @spec __using__(keyword()) :: Macro.t()
+  defmacro __using__(opts) do
+    opts = evaluate_use_options(opts, __CALLER__)
+
+    quote bind_quoted: [opts: opts] do
       import SpectreDirective.DSL
 
-      @before_compile SpectreDirective.DSL
       Builder.register(__MODULE__)
+      Integration.register(__MODULE__, opts)
+      @before_compile SpectreDirective.DSL
     end
   end
 
-  @doc """
-  Returns the optional runtime supervisor child spec.
-
-  Host applications may add `SpectreDirective` or
-  `SpectreDirective.Runtime.Supervisor` to their supervision tree. Direct calls
-  to `start_mission/2` and `start_directive/2` also work without this; the
-  runtime infrastructure starts lazily when needed.
-  """
+  @doc "Returns the optional runtime supervisor child specification."
   @spec child_spec(keyword()) :: Supervisor.child_spec()
-  def child_spec(opts) when is_list(opts) do
-    SpectreDirective.Runtime.Supervisor.child_spec(opts)
-  end
+  def child_spec(opts), do: SpectreDirective.Runtime.Supervisor.child_spec(opts)
 
-  @doc """
-  Starts the optional runtime supervisor.
-  """
+  @doc "Starts the optional local runtime supervision tree."
   @spec start_link(keyword()) :: Supervisor.on_start()
-  def start_link(opts \\ []) when is_list(opts) do
-    SpectreDirective.Runtime.Supervisor.start_link(opts)
+  def start_link(opts \\ []), do: SpectreDirective.Runtime.Supervisor.start_link(opts)
+
+  @doc "Creates pure loop state. No process or callback is started."
+  @spec new(map() | keyword()) :: {:ok, LoopState.t()} | {:error, term()}
+  def new(attrs), do: Engine.new(attrs)
+
+  @doc "Projects callback context into data without executable invocation targets."
+  @spec context_map(SpectreDirective.Context.t()) :: map()
+  def context_map(%SpectreDirective.Context{} = context),
+    do: SpectreDirective.Context.to_map(context)
+
+  @doc "Builds a provider-neutral LLM payload from callback context."
+  @spec reasoning_input(SpectreDirective.Context.t()) :: map()
+  def reasoning_input(%SpectreDirective.Context{} = context) do
+    %{protocol: SpectreDirective.Protocol.describe(), context: context_map(context)}
   end
 
-  @doc """
-  Creates and starts a mission from one simple map or keyword list.
+  @doc "Returns the provider-neutral decision protocol."
+  @spec protocol() :: map()
+  def protocol, do: SpectreDirective.Protocol.describe()
 
-  This is the ergonomic API for agent-created missions. It accepts the mission
-  description, optional inline capabilities, and a model function that receives
-  SpectreDirective's English planning prompts.
+  @doc "Advances a pure loop to its next request, boundary, or outcome."
+  @spec next(LoopState.t()) :: Engine.next_result()
+  def next(%LoopState{} = state), do: Engine.next(state)
 
-      {:ok, mission} =
-        SpectreDirective.create(%{
-          mission: "Make sure a new user can finish sign up",
-          context: "This is a release check. Do not use real customer data.",
-          success: "A test user reaches a valid post-signup state.",
-          capabilities: [:observe_page, :fill_form],
-          mode: :guided,
-          model: &MyApp.Model.complete/1
-        })
+  @doc "Applies a correlated response to a pure loop or live mission."
+  @spec respond(LoopState.t() | mission_ref(), binary(), term()) ::
+          Engine.result() | runtime_result(SpectreDirective.Pulse.t())
+  def respond(%LoopState{} = state, request_id, response),
+    do: Engine.respond(state, request_id, response)
 
-  `mode: :guided` selects guided planning. Use `planning_mode: :draft` or
-  `directive_mode: :adaptive` when those meanings should differ.
-  """
+  def respond(ref, request_id, response), do: MissionProcesses.respond(ref, request_id, response)
+
+  @doc "Responds to the current pending request of a live mission."
+  @spec respond(mission_ref(), term()) :: runtime_result(SpectreDirective.Pulse.t())
+  def respond(ref, response), do: MissionProcesses.respond(ref, response)
+
+  @doc "Adds mission-local information without implicitly completing a request."
+  @spec inform(LoopState.t() | mission_ref(), term(), keyword()) ::
+          {:ok, LoopState.t()} | runtime_result(SpectreDirective.Pulse.t()) | {:error, term()}
+  def inform(state_or_ref, information, opts \\ [])
+
+  def inform(%LoopState{} = state, information, opts), do: Engine.inform(state, information, opts)
+  def inform(ref, information, opts), do: MissionProcesses.inform(ref, information, opts)
+
+  @doc "Merges application-owned assigns into pure or live mission context."
+  @spec assign(LoopState.t() | mission_ref(), map()) ::
+          {:ok, LoopState.t()} | runtime_result(SpectreDirective.Pulse.t()) | {:error, term()}
+  def assign(%LoopState{} = state, assigns), do: Engine.assign(state, assigns)
+  def assign(ref, assigns), do: MissionProcesses.assign(ref, assigns)
+
+  @doc "Pauses pure loop state or a live mission."
+  @spec pause(LoopState.t() | mission_ref()) ::
+          {:ok, LoopState.t()} | runtime_result(SpectreDirective.Pulse.t()) | {:error, term()}
+  def pause(%LoopState{} = state), do: Engine.pause(state)
+  def pause(ref), do: MissionProcesses.control(ref, :pause)
+
+  @doc "Resumes pure loop state or a live mission."
+  @spec resume(LoopState.t() | mission_ref()) ::
+          {:ok, LoopState.t()} | runtime_result(SpectreDirective.Pulse.t()) | {:error, term()}
+  def resume(%LoopState{} = state), do: Engine.resume(state)
+  def resume(ref), do: MissionProcesses.control(ref, :resume)
+
+  @doc "Cancels pure loop state or a live mission."
+  @spec cancel(LoopState.t() | mission_ref(), term()) ::
+          LoopState.t() | runtime_result(SpectreDirective.Pulse.t())
+  def cancel(state_or_ref, reason \\ :cancelled)
+  def cancel(%LoopState{} = state, reason), do: Engine.cancel(state, reason)
+  def cancel(ref, reason), do: MissionProcesses.control(ref, {:cancel, reason})
+
+  @doc "Creates and starts a mission from a map or keyword list."
   @spec create(map() | keyword()) :: {:ok, pid()} | {:error, term()}
   def create(attrs) when is_map(attrs) or is_list(attrs) do
     attrs = Map.new(attrs)
 
-    with {:ok, mission} <- create_mission(attrs) do
-      start_mission(mission, create_opts(attrs))
+    case attr(attrs, [:mission, :goal, :objective]) do
+      nil ->
+        {:error, :mission_required}
+
+      goal ->
+        mission =
+          Mission.new(goal,
+            context: attr(attrs, :context),
+            success: attr(attrs, [:success, :success_criteria]),
+            constraints: attr(attrs, :constraints, []),
+            risk_boundaries: attr(attrs, :risk_boundaries, []),
+            metadata: attr(attrs, :mission_metadata, %{})
+          )
+
+        blueprint =
+          MissionBlueprint.new(
+            name: attr(attrs, :name, mission.goal),
+            mission: mission,
+            mode: attr(attrs, :mode, :guided),
+            source: attr(attrs, :source, :agent_generated),
+            plan: attr(attrs, :plan),
+            steps: attr(attrs, :steps, []),
+            on_complete: attr(attrs, :on_complete),
+            metadata: attr(attrs, :metadata, %{})
+          )
+
+        start_directive(blueprint, runtime_opts(attrs))
     end
   end
 
-  @doc """
-  Starts an emergent mission from a goal or mission map.
-  """
-  @spec start_mission(binary() | map() | SpectreDirective.Mission.t(), keyword()) ::
+  @doc "Starts an emergent mission from a goal or mission value."
+  @spec start_mission(binary() | map() | Mission.t(), keyword()) ::
           {:ok, pid()} | {:error, term()}
   def start_mission(mission, opts \\ []) do
     mission
@@ -165,15 +176,20 @@ defmodule SpectreDirective do
     |> start_directive(opts)
   end
 
-  @doc """
-  Starts an authored, emergent, or hybrid directive.
-  """
+  @doc "Starts the optional OTP runtime around existing pure loop state."
+  @spec start_loop(LoopState.t(), keyword()) :: {:ok, pid()} | {:error, term()}
+  def start_loop(%LoopState{} = loop, opts \\ []) do
+    MissionProcesses.start_loop(loop, Keyword.put_new(opts, :execution, :manual))
+  end
+
+  @doc "Starts a reusable blueprint or a module authored with `use Spectre.Directive`."
   @spec start_directive(MissionBlueprint.t() | module(), keyword()) ::
           {:ok, pid()} | {:error, term()}
   def start_directive(blueprint_or_module, opts \\ [])
 
-  def start_directive(%MissionBlueprint{} = blueprint, opts),
-    do: MissionProcesses.start(fresh_blueprint(blueprint, opts), opts)
+  def start_directive(%MissionBlueprint{} = blueprint, opts) do
+    blueprint |> MissionBlueprint.instantiate(opts) |> MissionProcesses.start(opts)
+  end
 
   def start_directive(module, opts) when is_atom(module) do
     name = Keyword.get(opts, :directive)
@@ -186,182 +202,112 @@ defmodule SpectreDirective do
     UndefinedFunctionError -> {:error, {:not_a_directive_module, module}}
   end
 
-  @doc "Returns the live pulse for a mission."
-  @spec pulse(pid() | binary()) :: {:ok, Pulse.t()} | {:error, term()}
+  @doc "Returns a live mission pulse."
+  @spec pulse(mission_ref()) :: runtime_result(SpectreDirective.Pulse.t())
   defdelegate pulse(ref), to: MissionProcesses
 
-  @doc "Returns the meaningful mission trace."
-  @spec trace(pid() | binary()) :: {:ok, [SpectreDirective.Trace.Entry.t()]} | {:error, term()}
+  @doc "Returns the complete pure state held by a live mission process."
+  @spec state(mission_ref()) :: runtime_result(LoopState.t())
+  defdelegate state(ref), to: MissionProcesses
+
+  @doc "Returns the current pending request, if any."
+  @spec request(mission_ref()) :: runtime_result(SpectreDirective.Request.t() | nil)
+  defdelegate request(ref), to: MissionProcesses
+
+  @doc "Returns the terminal outcome, if any."
+  @spec outcome(mission_ref()) :: runtime_result(SpectreDirective.Outcome.t() | nil)
+  defdelegate outcome(ref), to: MissionProcesses
+
+  @doc "Returns the causal mission trace."
+  @spec trace(mission_ref()) :: runtime_result([SpectreDirective.Trace.Entry.t()])
   defdelegate trace(ref), to: MissionProcesses
 
-  @doc "Returns the current living plan."
-  @spec plan(pid() | binary()) :: {:ok, SpectreDirective.Plan.t()} | {:error, term()}
+  @doc "Returns the living plan."
+  @spec plan(mission_ref()) :: runtime_result(SpectreDirective.Plan.t())
   defdelegate plan(ref), to: MissionProcesses
 
-  @doc "Returns the current mission knowledge."
-  @spec knowledge(pid() | binary()) :: {:ok, SpectreDirective.Knowledge.t()} | {:error, term()}
-  defdelegate knowledge(ref), to: MissionProcesses
+  @doc "Returns a read-only callback context snapshot."
+  @spec context(mission_ref()) :: runtime_result(SpectreDirective.Context.t())
+  defdelegate context(ref), to: MissionProcesses
 
-  @doc "Returns the discovered and authored capability snapshot."
-  @spec capabilities(pid() | binary()) ::
-          {:ok, SpectreDirective.CapabilitySnapshot.t()} | {:error, term()}
-  defdelegate capabilities(ref), to: MissionProcesses
+  @doc "Subscribes a process to request, information, error, and outcome events."
+  @spec subscribe(mission_ref(), pid()) :: :ok | {:error, term()}
+  defdelegate subscribe(ref, subscriber \\ self()), to: MissionProcesses
 
-  @doc "Returns the current guided planning state."
-  @spec planning_state(pid() | binary()) :: {:ok, term()} | {:error, term()}
-  defdelegate planning_state(ref), to: MissionProcesses
-
-  @doc "Asks the configured planner/model for one guided planning proposal."
-  @spec propose_plan_item(pid() | binary(), keyword()) :: {:ok, term()} | {:error, term()}
-  defdelegate propose_plan_item(ref, opts \\ []), to: MissionProcesses
-
-  @doc "Submits a guided planning proposal from an external process."
-  @spec submit_plan_item(pid() | binary(), term()) :: {:ok, term()} | {:error, term()}
-  defdelegate submit_plan_item(ref, proposal), to: MissionProcesses
-
-  @doc "Accepts the pending guided planning proposal, optionally with edits."
-  @spec accept_plan_item(pid() | binary(), term()) :: {:ok, term()} | {:error, term()}
-  defdelegate accept_plan_item(ref, item_or_edit \\ :pending), to: MissionProcesses
-
-  @doc "Rejects the pending guided planning proposal and records feedback."
-  @spec reject_plan_item(pid() | binary(), term()) :: {:ok, term()} | {:error, term()}
-  defdelegate reject_plan_item(ref, reason), to: MissionProcesses
-
-  @doc "Finishes guided planning and starts normal mission execution."
-  @spec finish_planning(pid() | binary(), term()) :: {:ok, Pulse.t()} | {:error, term()}
-  defdelegate finish_planning(ref, reason \\ nil), to: MissionProcesses
-
-  @doc "Returns the current step, selecting one if needed."
-  @spec next_step(pid() | binary()) :: {:ok, SpectreDirective.Step.t() | nil} | {:error, term()}
-  defdelegate next_step(ref), to: MissionProcesses
-
-  @doc """
-  Completes a step with an observation payload.
-  """
-  @spec complete_step(pid() | binary(), term()) :: {:ok, Pulse.t()} | {:error, term()}
-  defdelegate complete_step(ref, observation), to: MissionProcesses
-
-  @doc """
-  Applies an observation to the current step.
-  """
-  @spec apply_observation(pid() | binary(), term()) :: {:ok, Pulse.t()} | {:error, term()}
-  defdelegate apply_observation(ref, observation), to: MissionProcesses
-
-  @doc """
-  Sends a control action to a mission.
-  """
-  @spec control(pid() | binary(), term()) :: {:ok, Pulse.t()} | {:error, term()}
+  @doc "Applies a runtime control such as `:pause`, `:resume`, or `{:cancel, reason}`."
+  @spec control(mission_ref(), term()) :: runtime_result(SpectreDirective.Pulse.t())
   defdelegate control(ref, action), to: MissionProcesses
 
-  @doc """
-  Waits until a mission reaches a terminal state.
-  """
-  @spec await(pid() | binary(), timeout()) :: {:ok, Pulse.t()} | {:error, term()}
-  def await(ref, timeout \\ 60_000) do
-    deadline = System.monotonic_time(:millisecond) + timeout
-    do_await(ref, deadline)
-  end
+  @doc "Stops and removes a live mission process after its state has been handed off."
+  @spec stop(mission_ref()) :: :ok | {:error, term()}
+  defdelegate stop(ref), to: MissionProcesses
 
-  @spec do_await(pid() | binary(), integer()) :: {:ok, Pulse.t()} | {:error, term()}
-  defp do_await(ref, deadline) do
-    case pulse(ref) do
-      {:ok, %Pulse{status: status} = pulse} when status in [:finished, :stopped, :aborted] ->
-        {:ok, pulse}
+  @doc "Waits for a live mission to reach a terminal outcome."
+  @spec await(mission_ref(), timeout()) :: runtime_result(SpectreDirective.Outcome.t())
+  defdelegate await(ref, timeout \\ 60_000), to: MissionProcesses
 
-      {:ok, _pulse} ->
-        if System.monotonic_time(:millisecond) >= deadline do
-          {:error, :timeout}
-        else
-          Process.sleep(20)
-          do_await(ref, deadline)
-        end
-
-      {:error, reason} ->
-        {:error, reason}
-    end
-  end
-
-  @spec fresh_blueprint(MissionBlueprint.t(), keyword()) :: MissionBlueprint.t()
-  defp fresh_blueprint(%MissionBlueprint{} = blueprint, opts) do
-    mission_id = Keyword.get(opts, :id) || SpectreDirective.ID.new("mission")
-
-    %{
-      blueprint
-      | id: SpectreDirective.ID.new("blueprint"),
-        mission: %{blueprint.mission | id: mission_id, status: :draft}
-    }
-  end
-
-  @spec create_mission(map()) :: {:ok, map()} | {:error, :mission_required}
-  defp create_mission(attrs) do
-    case attr(attrs, [:mission, :goal]) do
-      nil ->
-        {:error, :mission_required}
-
-      mission ->
-        {:ok,
-         %{
-           goal: mission,
-           context: attr(attrs, :context),
-           success: attr(attrs, [:success, :success_criteria]),
-           constraints: List.wrap(attr(attrs, :constraints, [])),
-           risk_boundaries: List.wrap(attr(attrs, :risk_boundaries, [])),
-           memory_scope: attr(attrs, :memory_scope),
-           metadata: Map.new(attr(attrs, :metadata, %{}))
-         }}
-    end
-  end
-
-  @spec create_opts(map()) :: keyword()
-  defp create_opts(attrs) do
+  @spec runtime_opts(map()) :: keyword()
+  defp runtime_opts(attrs) do
     [
-      mode: directive_mode(attrs),
-      planning_mode: planning_mode(attrs),
-      planning_model: planning_model(attrs),
-      planning_subscribers: attr(attrs, :planning_subscribers, []),
-      capabilities: attr(attrs, :capabilities, []),
-      capability_adapters: attr(attrs, :capability_adapters, []),
-      memory_adapter: attr(attrs, :memory_adapter),
-      memory_opts: attr(attrs, :memory_opts, []),
-      planner: attr(attrs, :planner),
-      alignment: attr(attrs, :alignment),
-      strategies: attr(attrs, :strategies),
-      steps: attr(attrs, :steps),
-      name: attr(attrs, :name),
-      id: attr(attrs, :id)
+      :id,
+      :reasoner,
+      :model,
+      :reasoner_opts,
+      :execution,
+      :request_handler,
+      :policy_handler,
+      :policy,
+      :request_timeout,
+      :subscribers,
+      :input,
+      :assigns,
+      :information,
+      :max_iterations,
+      :runtime_opts
     ]
-    |> Enum.reject(fn {_key, value} -> is_nil(value) end)
-  end
-
-  @spec directive_mode(map()) :: MissionBlueprint.mode()
-  defp directive_mode(attrs) do
-    case attr(attrs, [:directive_mode, :mode]) do
-      mode when mode in [:strict, :guided, :adaptive] -> mode
-      _mode -> :adaptive
-    end
-  end
-
-  @spec planning_mode(map()) :: :draft | :guided
-  defp planning_mode(attrs) do
-    case attr(attrs, [:planning_mode, :planning, :mode]) do
-      :guided -> :guided
-      _mode -> :draft
-    end
-  end
-
-  @spec planning_model(map()) :: function() | nil
-  defp planning_model(attrs) do
-    attr(attrs, [:planning_model, :model, :llm, :complete])
+    |> Enum.reduce([], fn key, opts ->
+      case attr(attrs, key) do
+        nil -> opts
+        value -> Keyword.put(opts, key, value)
+      end
+    end)
   end
 
   @spec attr(map(), atom() | [atom()], term()) :: term()
   defp attr(attrs, key_or_keys, default \\ nil)
 
   defp attr(attrs, keys, default) when is_list(keys) do
-    Enum.find_value(keys, default, &attr(attrs, &1))
+    Enum.reduce_while(keys, default, fn key, _default ->
+      case fetch_attr(attrs, key) do
+        {:ok, value} -> {:halt, value}
+        :error -> {:cont, default}
+      end
+    end)
   end
 
   defp attr(attrs, key, default) when is_atom(key) do
-    Map.get(attrs, key) || Map.get(attrs, Atom.to_string(key)) || default
+    case fetch_attr(attrs, key) do
+      {:ok, value} -> value
+      :error -> default
+    end
+  end
+
+  @spec fetch_attr(map(), atom()) :: {:ok, term()} | :error
+  defp fetch_attr(attrs, key) do
+    case Map.fetch(attrs, key) do
+      {:ok, value} -> {:ok, value}
+      :error -> Map.fetch(attrs, Atom.to_string(key))
+    end
+  end
+
+  @spec evaluate_use_options(Macro.t(), Macro.Env.t()) :: keyword()
+  defp evaluate_use_options(opts, env) do
+    {opts, _binding} = Code.eval_quoted(opts, [], env)
+
+    if Keyword.keyword?(opts) do
+      opts
+    else
+      raise ArgumentError, "use Spectre.Directive expects a keyword list, got: #{inspect(opts)}"
+    end
   end
 end
