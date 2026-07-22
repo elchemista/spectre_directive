@@ -20,7 +20,7 @@ defmodule SpectreDirective.MixProject do
       ],
       docs: [
         main: "readme",
-        extras: ["README.md", "PLAN.md", "LICENSE"]
+        extras: ["README.md", "LICENSE"]
       ],
       source_url: @source_url,
       homepage_url: @source_url
@@ -41,7 +41,7 @@ defmodule SpectreDirective.MixProject do
     [
       name: "spectre_directive",
       maintainers: ["elchemista"],
-      files: ~w(lib mix.exs README.md PLAN.md LICENSE),
+      files: ~w(lib mix.exs README.md LICENSE),
       licenses: ["Apache-2.0"],
       links: %{"GitHub" => @source_url}
     ]
