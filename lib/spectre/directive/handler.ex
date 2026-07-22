@@ -17,7 +17,9 @@ defmodule Spectre.Directive.Handler do
 
   Agent messages receive the Spectre turn context or Directive callback
   context as their second argument. Runtime events receive the owning
-  GenServer state.
+  GenServer state. A Spectre Agent reasons for the mission but does not own the
+  real user channel: applications resume questions through `reply/3` or a
+  correlated `respond/3` call.
   """
 
   alias SpectreDirective.Context

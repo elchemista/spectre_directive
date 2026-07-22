@@ -118,6 +118,51 @@ defmodule SpectreDirective.TestAgents.InteractiveAgent do
   end
 end
 
+defmodule SpectreDirective.TestAgents.ConversationAgent do
+  use Spectre.Agent
+  use Spectre.Directive
+
+  alias SpectreDirective.Context
+  alias SpectreDirective.Information
+
+  directive "conversation" do
+    mission("Collect the information needed to personalize the result")
+    mode(:autonomous)
+  end
+
+  @impl Spectre.Directive.Handler
+  def handle_directive({:reason, %Context{operation: :plan}}, _spectre_context) do
+    {:propose_plan, [%{id: "profile", title: "Collect the user profile"}]}
+  end
+
+  def handle_directive({:reason, %Context{operation: :step} = context}, _spectre_context) do
+    case answers(context) do
+      [] ->
+        {:ask, "What is your name?"}
+
+      [_name] ->
+        {:ask, "Which language do you prefer?"}
+
+      [name, language | _rest] ->
+        {:complete_step, %{name: name, language: language}}
+    end
+  end
+
+  def handle_directive(
+        {:reason, %Context{operation: :mission_review} = context},
+        _spectre_context
+      ) do
+    {:complete_mission, context.last_result}
+  end
+
+  def handle_directive(message, context), do: super(message, context)
+
+  defp answers(%Context{} = context) do
+    for %Information{source: {:answer, _request_id}, content: answer} <- context.information,
+        do: answer
+  end
+end
+
 defmodule SpectreDirective.TestAgents.RecoveryAgent do
   use Spectre.Agent
   use Spectre.Directive
@@ -310,6 +355,7 @@ defmodule SpectreDirective.SpectreAgentScenariosTest do
   alias SpectreDirective.Outcome
   alias SpectreDirective.Request
   alias SpectreDirective.TestAgents.CompletionAgent
+  alias SpectreDirective.TestAgents.ConversationAgent
   alias SpectreDirective.TestAgents.InteractiveAgent
   alias SpectreDirective.TestAgents.InterruptionAgent
   alias SpectreDirective.TestAgents.ModelAgent
@@ -472,6 +518,33 @@ defmodule SpectreDirective.SpectreAgentScenariosTest do
   end
 
   describe "questions, confirmations, and user replies through a Spectre Agent" do
+    test "await_input and reply carry repeated questions through the final outcome" do
+      callback = fn context -> {:ok, {:saved, context.last_result}} end
+      mission = start_agent(ConversationAgent, "conversation", on_complete: callback)
+      assert {:ok, pulse} = Spectre.Directive.pulse(mission)
+
+      assert {:ok, {:request, %Request{kind: :question} = name_request}} =
+               Spectre.Directive.await_input(pulse.mission_id, :infinity)
+
+      assert name_request.payload.question == "What is your name?"
+
+      assert {:ok, {:request, %Request{kind: :question} = language_request}} =
+               Spectre.Directive.reply(mission, "Ada", 3_000)
+
+      assert language_request.id != name_request.id
+      assert language_request.payload.question == "Which language do you prefer?"
+
+      profile = %{name: "Ada", language: "Elixir"}
+
+      assert {:ok,
+              {:outcome,
+               %Outcome{
+                 status: :completed,
+                 result: ^profile,
+                 completion_result: {:saved, ^profile}
+               }}} = SpectreDirective.reply(mission, "Elixir", :infinity)
+    end
+
     test "the user accepts a generated plan, answers the Agent, and completes the mission" do
       mission = start_agent(InteractiveAgent, "interactive")
 

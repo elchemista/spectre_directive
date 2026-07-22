@@ -37,10 +37,13 @@ defmodule SpectreDirective do
   alias SpectreDirective.Loop.State, as: LoopState
   alias SpectreDirective.Mission
   alias SpectreDirective.MissionBlueprint
+  alias SpectreDirective.Outcome
+  alias SpectreDirective.Request
   alias SpectreDirective.Runtime.MissionProcesses
 
   @type mission_ref :: pid() | binary()
   @type runtime_result(value) :: {:ok, value} | {:error, term()}
+  @type input_boundary :: {:request, Request.t()} | {:outcome, Outcome.t()}
 
   @doc "Imports the authored Directive DSL and installs the detected host integration."
   @spec __using__(keyword()) :: Macro.t()
@@ -245,6 +248,26 @@ defmodule SpectreDirective do
   @doc "Waits for a live mission to reach a terminal outcome."
   @spec await(mission_ref(), timeout()) :: runtime_result(SpectreDirective.Outcome.t())
   defdelegate await(ref, timeout \\ 60_000), to: MissionProcesses
+
+  @doc """
+  Waits for the next user-owned request or the terminal outcome.
+
+  Question, confirmation, and policy requests are returned as
+  `{:request, request}`. Internal reasoning and invocation requests are skipped.
+  A finished mission is returned as `{:outcome, outcome}`. Manual runtimes must
+  still resolve their own reason and invocation requests.
+  """
+  @spec await_input(mission_ref(), timeout()) :: runtime_result(input_boundary())
+  defdelegate await_input(ref, timeout \\ 60_000), to: MissionProcesses
+
+  @doc """
+  Responds to the current user-owned request and waits for the next boundary.
+
+  This is the conversational counterpart to `await_input/2`: it returns either
+  the next request or the terminal outcome, using the same tagged shape.
+  """
+  @spec reply(mission_ref(), term(), timeout()) :: runtime_result(input_boundary())
+  defdelegate reply(ref, response, timeout \\ 60_000), to: MissionProcesses
 
   @spec runtime_opts(map()) :: keyword()
   defp runtime_opts(attrs) do

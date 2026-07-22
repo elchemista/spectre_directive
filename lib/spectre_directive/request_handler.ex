@@ -1,7 +1,8 @@
 defmodule SpectreDirective.RequestHandler do
   @moduledoc """
   Adapter for hosts that want the optional runtime to resolve arbitrary
-  requests. Manual hosts can instead subscribe to events and call `respond/3`.
+  requests. Manual or asynchronous UI hosts should instead subscribe to events
+  and call `respond/3` when the user eventually answers.
   """
 
   alias SpectreDirective.Request
