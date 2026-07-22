@@ -589,5 +589,37 @@ defmodule SpectreDirective.DomainContractsTest do
       assert "reorder" in protocol.patch_operations
       assert SpectreDirective.protocol() == protocol
     end
+
+    test "public data constructors provide safe defaults" do
+      {:ok, state} = State.new(mission: "Defaults", steps: [%{title: "Inspect"}])
+      context = State.context(state, :reason)
+
+      request = Request.new(:reason, context)
+      assert request.target == nil
+      assert request.payload == %{}
+      assert %DateTime{} = request.created_at
+
+      information = Information.new(:fact)
+      assert information.source == :application
+      assert information.trust == :unknown
+      assert information.metadata == %{}
+      assert %DateTime{} = information.inserted_at
+
+      working_context = WorkingContext.new()
+      assert working_context.information == []
+      assert working_context.assigns == %{}
+      assert working_context.revision == 0
+
+      outcome = Outcome.new(state.mission.id, :completed)
+      assert outcome.result == nil
+      assert outcome.reason == nil
+      assert outcome.metadata == %{}
+      assert %DateTime{} = outcome.completed_at
+
+      entry = Entry.new(state.mission.id, :created, "Created")
+      assert entry.data == nil
+      assert String.starts_with?(entry.id, "trace_")
+      assert %DateTime{} = entry.timestamp
+    end
   end
 end

@@ -3,10 +3,14 @@ defmodule SpectreDirective.Runtime.MissionProcesses do
 
   alias SpectreDirective.MissionBlueprint
   alias SpectreDirective.Outcome
+  alias SpectreDirective.Request
   alias SpectreDirective.Runtime.MissionMachine
 
   @registry SpectreDirective.Registry
   @mission_supervisor SpectreDirective.MissionSupervisor
+  @user_input_kinds [:question, :confirmation, :policy]
+
+  @type input_boundary :: {:request, Request.t()} | {:outcome, Outcome.t()}
 
   @doc false
   @spec start(MissionBlueprint.t(), keyword()) :: {:ok, pid()} | {:error, term()}
@@ -106,6 +110,30 @@ defmodule SpectreDirective.Runtime.MissionProcesses do
 
   def await(_ref, timeout), do: {:error, {:invalid_timeout, timeout}}
 
+  @doc false
+  @spec await_input(pid() | binary(), timeout()) ::
+          {:ok, input_boundary()} | {:error, term()}
+  def await_input(ref, timeout \\ 60_000)
+  def await_input(ref, :infinity), do: do_await_input(ref, :infinity)
+
+  def await_input(ref, timeout) when is_integer(timeout) and timeout >= 0 do
+    do_await_input(ref, System.monotonic_time(:millisecond) + timeout)
+  end
+
+  def await_input(_ref, timeout), do: {:error, {:invalid_timeout, timeout}}
+
+  @doc false
+  @spec reply(pid() | binary(), term(), timeout()) ::
+          {:ok, input_boundary()} | {:error, term()}
+  def reply(ref, response, timeout \\ 60_000)
+  def reply(ref, response, :infinity), do: do_reply(ref, response, :infinity)
+
+  def reply(ref, response, timeout) when is_integer(timeout) and timeout >= 0 do
+    do_reply(ref, response, timeout)
+  end
+
+  def reply(_ref, _response, timeout), do: {:error, {:invalid_timeout, timeout}}
+
   @spec call(pid() | binary(), term()) :: term()
   defp call(ref, message) when is_pid(ref), do: safe_call(ref, message)
 
@@ -151,6 +179,67 @@ defmodule SpectreDirective.Runtime.MissionProcesses do
     else
       Process.sleep(20)
       do_await(ref, deadline)
+    end
+  end
+
+  @spec do_await_input(pid() | binary(), integer() | :infinity) ::
+          {:ok, input_boundary()} | {:error, term()}
+  defp do_await_input(ref, deadline) do
+    case outcome(ref) do
+      {:ok, %Outcome{} = outcome} ->
+        {:ok, {:outcome, outcome}}
+
+      {:ok, nil} ->
+        await_user_request(ref, deadline)
+
+      {:error, reason} ->
+        {:error, reason}
+    end
+  end
+
+  @spec await_user_request(pid() | binary(), integer() | :infinity) ::
+          {:ok, input_boundary()} | {:error, term()}
+  defp await_user_request(ref, deadline) do
+    case request(ref) do
+      {:ok, %Request{kind: kind} = request} when kind in @user_input_kinds ->
+        {:ok, {:request, request}}
+
+      {:ok, _internal_or_missing_request} ->
+        await_next_input_poll(ref, deadline)
+
+      {:error, reason} ->
+        {:error, reason}
+    end
+  end
+
+  @spec await_next_input_poll(pid() | binary(), integer() | :infinity) ::
+          {:ok, input_boundary()} | {:error, term()}
+  defp await_next_input_poll(ref, deadline) do
+    if timed_out?(deadline) do
+      {:error, :timeout}
+    else
+      Process.sleep(20)
+      do_await_input(ref, deadline)
+    end
+  end
+
+  @spec do_reply(pid() | binary(), term(), timeout()) ::
+          {:ok, input_boundary()} | {:error, term()}
+  defp do_reply(ref, response, timeout) do
+    case request(ref) do
+      {:ok, %Request{kind: kind} = request} when kind in @user_input_kinds ->
+        with {:ok, _pulse} <- respond(ref, request.id, response) do
+          await_input(ref, timeout)
+        end
+
+      {:ok, %Request{kind: kind}} ->
+        {:error, {:not_user_input, kind}}
+
+      {:ok, nil} ->
+        {:error, :no_pending_request}
+
+      {:error, reason} ->
+        {:error, reason}
     end
   end
 

@@ -184,7 +184,15 @@ defmodule SpectreDirective.RuntimeAPITest do
       assert {:error, :not_found} = Spectre.Directive.pulse(:invalid)
       assert {:error, :not_found} = Spectre.Directive.stop("missing")
       assert {:error, :not_found} = Spectre.Directive.stop(:invalid)
+      assert {:error, :not_found} = Spectre.Directive.await_input("missing", 0)
+      assert {:error, :not_found} = Spectre.Directive.reply("missing", :answer, 0)
       assert {:error, {:invalid_timeout, :bad}} = Spectre.Directive.await("missing", :bad)
+
+      assert {:error, {:invalid_timeout, :bad}} =
+               Spectre.Directive.await_input("missing", :bad)
+
+      assert {:error, {:invalid_timeout, :bad}} =
+               Spectre.Directive.reply("missing", :answer, :bad)
 
       {:ok, mission} =
         Spectre.Directive.start_mission("No request",
@@ -194,15 +202,24 @@ defmodule SpectreDirective.RuntimeAPITest do
 
       on_exit(fn -> safe_stop(mission) end)
       assert {:error, :timeout} = Spectre.Directive.await(mission, 0)
+      assert {:error, :timeout} = Spectre.Directive.await_input(mission, 0)
 
       assert {:ok, %Request{} = request} = wait_for_request(mission)
+
+      assert {:error, {:not_user_input, :reason}} =
+               Spectre.Directive.reply(mission, :not_a_reasoner_response, 0)
 
       assert {:error, {:stale_response, "old", expected}} =
                Spectre.Directive.respond(mission, "old", :ok)
 
       assert expected == request.id
       assert {:ok, _pulse} = Spectre.Directive.cancel(mission, :finished)
+
+      assert {:ok, {:outcome, %Outcome{status: :cancelled}}} =
+               Spectre.Directive.await_input(mission, 0)
+
       assert {:error, :no_pending_request} = Spectre.Directive.respond(mission, :late)
+      assert {:error, :no_pending_request} = Spectre.Directive.reply(mission, :late, 0)
     end
   end
 

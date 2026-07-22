@@ -33,6 +33,7 @@ defmodule Spectre.Directive do
 
   @type mission_ref :: pid() | binary()
   @type runtime_result(value) :: {:ok, value} | {:error, term()}
+  @type input_boundary :: {:request, Request.t()} | {:outcome, Outcome.t()}
 
   @doc "Imports the Directive DSL and installs the appropriate host integration."
   @spec __using__(keyword()) :: Macro.t()
@@ -164,4 +165,24 @@ defmodule Spectre.Directive do
   @doc "Waits until a live mission reaches a terminal outcome or the timeout expires."
   @spec await(mission_ref(), timeout()) :: runtime_result(Outcome.t())
   defdelegate await(ref, timeout \\ 60_000), to: SpectreDirective
+
+  @doc """
+  Waits for the next user-owned request or the terminal mission outcome.
+
+  The runtime skips its internal reason/invoke work and returns
+  `{:request, request}` for questions, confirmations, and policy decisions, or
+  `{:outcome, outcome}` when the mission finishes. This helper is intended for
+  automatic runtimes; a manual reason/invoke boundary remains host-owned.
+  """
+  @spec await_input(mission_ref(), timeout()) :: runtime_result(input_boundary())
+  defdelegate await_input(ref, timeout \\ 60_000), to: SpectreDirective
+
+  @doc """
+  Replies to the current user-owned request and waits for the next boundary.
+
+  Use this for synchronous CLI and test flows. Event-driven applications can
+  subscribe to the mission and respond by request id with `respond/3` instead.
+  """
+  @spec reply(mission_ref(), term(), timeout()) :: runtime_result(input_boundary())
+  defdelegate reply(ref, response, timeout \\ 60_000), to: SpectreDirective
 end

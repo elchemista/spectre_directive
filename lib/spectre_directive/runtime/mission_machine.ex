@@ -1,11 +1,5 @@
 defmodule SpectreDirective.Runtime.MissionMachine do
-  @moduledoc """
-  Optional `:gen_statem` host for a pure mission loop.
-
-  Model, invocation, policy, and generic request callbacks always run under
-  `SpectreDirective.TaskSupervisor`. The mission process only applies their
-  correlated return values.
-  """
+  @moduledoc false
 
   @behaviour :gen_statem
 

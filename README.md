@@ -17,6 +17,11 @@ discovery, Kinetic actions, persistence, or application policy. Those remain
 host concerns. Directive owns only the state and legal transitions of one live
 mission.
 
+Version `0.1.0` is the first public release and remains intentionally pre-1.0:
+the core contracts are tested and documented, while minor releases may still
+refine public APIs from user feedback. See the [changelog](CHANGELOG.md) for
+what ships and the [roadmap](ROADMAP.md) for likely next steps.
+
 ## The contract
 
 ```text
@@ -75,6 +80,21 @@ end
 ```
 
 `spectre` is optional. A standalone or GenServer host does not need it.
+
+For a complete first walkthrough, read [Getting started](docs/GETTING_STARTED.md).
+The repository also contains examples that run without an LLM or external
+service:
+
+```bash
+mix run examples/pure_loop.exs
+mix run examples/automatic_runtime.exs
+mix run examples/dsl_showcase.exs
+MIX_ENV=test mix run examples/spectre_agent.exs
+```
+
+See the [examples guide](examples/EXAMPLES.md) for the DSL declaration reference
+and the [Spectre Agent integration guide](docs/SPECTRE_AGENT_INTEGRATION.md) for
+questions, repeated replies, event-driven channels, and completion.
 
 ## Quick start
 
@@ -368,7 +388,8 @@ SpectreDirective.Runtime.Supervisor
 Use `pulse/1` for a compact status, `state/1` for the complete loop,
 `request/1`, `plan/1`, `context/1`, `trace/1`, and `outcome/1` for focused
 views. `pause/1`, `resume/1`, `cancel/2`, `stop/1`, and `await/2` manage the
-mission lifecycle.
+mission lifecycle. `await_input/2` and `reply/3` provide a synchronous
+conversation loop over user-owned requests.
 
 ## Spectre Agent integration
 
@@ -403,10 +424,29 @@ Start through the generated Agent API:
 ```elixir
 {:ok, mission} =
   MyApp.ResearchAgent.start_directive("client-research",
-    input: %{url: "https://example.test/acme"},
-    subscribers: [self()]
+    input: %{url: "https://example.test/acme"}
   )
 ```
+
+When the Agent returns `{:ask, question}`, the mission pauses at a correlated
+`:question` request. A CLI or test can carry multiple questions through to the
+terminal outcome without handling internal reasoning requests:
+
+```elixir
+{:ok, {:request, first}} = Spectre.Directive.await_input(mission)
+IO.puts(first.payload.question)
+
+{:ok, {:request, second}} = Spectre.Directive.reply(mission, "Acme")
+IO.puts(second.payload.question)
+
+{:ok, {:outcome, outcome}} = Spectre.Directive.reply(mission, "Italian")
+```
+
+For LiveView, bots, and other asynchronous channels, start with
+`subscribers: [channel_pid]`, present each `:request` event, and correlate the
+user answer with `Spectre.Directive.respond(mission_id, request.id, answer)`.
+Do not pass that answer to `Spectre.ask/3`: doing so starts a separate Agent
+turn instead of resuming the waiting Directive mission.
 
 By default, reasoning uses the model configuration already carried by the
 Spectre turn. Override `handle_directive({:reason, context}, spectre_context)`
@@ -420,6 +460,10 @@ host to a trusted function, module, or MFA. Unresolved targets fail closed.
 The adapter references Spectre dynamically, so this package still compiles and
 runs when Spectre is absent. JSON model responses require `Jason` to be
 available in the host application.
+
+See the complete [Spectre Agent integration guide](docs/SPECTRE_AGENT_INTEGRATION.md)
+for accessing ordered answers in `context.information`, confirmation and policy
+requests, channel routing, and `on_complete` semantics.
 
 ## GenServer integration
 
@@ -512,8 +556,13 @@ that need those features can inject their own retrieved data through
 mix deps.get
 mix format --check-formatted
 mix compile --warnings-as-errors
-mix test
-mix credo suggest "lib/**/*.ex" --strict
+mix test --cover
+mix credo
 mix dialyzer
-mix docs
+mix docs --warnings-as-errors
+mix hex.publish --dry-run
 ```
+
+Credo intentionally runs without `--strict`. See [CONTRIBUTING.md](CONTRIBUTING.md)
+for development guidance, [RELEASING.md](RELEASING.md) for the maintainer
+checklist, and [SECURITY.md](SECURITY.md) for vulnerability reporting.

@@ -4,7 +4,9 @@ defmodule SpectreDirective.Integration.SpectreAgent do
 
   Spectre remains an optional runtime dependency. Calls cross that boundary
   dynamically, while the mission loop itself continues to depend only on
-  Directive domain structs and behaviours.
+  Directive domain structs and behaviours. Spectre owns reasoning turns; the
+  application-facing channel resumes user requests through Directive's
+  `await_input/2`, `reply/3`, or subscription APIs.
   """
 
   @behaviour SpectreDirective.Reasoner
