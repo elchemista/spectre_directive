@@ -517,6 +517,3 @@ mix credo suggest "lib/**/*.ex" --strict
 mix dialyzer
 mix docs
 ```
-
-The implementation roadmap and architectural decisions are in
-[`PLAN.md`](PLAN.md).
