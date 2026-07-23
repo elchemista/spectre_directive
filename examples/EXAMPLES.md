@@ -10,10 +10,11 @@ is required.
 | `automatic_runtime.exs` | Supervised automatic reasoner and invocation execution | `mix run examples/automatic_runtime.exs` |
 | `dsl_showcase.exs` | Named directives, all authored DSL declarations, policy, and completion callbacks | `mix run examples/dsl_showcase.exs` |
 | `spectre_agent.exs` | Spectre Agent questions, repeated replies, a trusted symbolic invocation, and completion | `MIX_ENV=test mix run examples/spectre_agent.exs` |
+| `persistent_spectre_agent.exs` | A Store-backed mission resumed by ordinary Spectre turns, including guided confirmation, repeated questions, completion, and return to normal routing | `MIX_ENV=test mix run examples/persistent_spectre_agent.exs` |
 
-The Spectre Agent example uses `MIX_ENV=test` because Spectre is intentionally a
-test-only dependency of this repository. Published applications should depend
-on both `:spectre` and `:spectre_directive` themselves.
+The Spectre Agent examples use `MIX_ENV=test` because Spectre is intentionally
+a test-only dependency of this repository. Published applications should
+depend on both `:spectre` and `:spectre_directive` themselves.
 
 ## Authored DSL declarations
 
@@ -42,8 +43,18 @@ Resolve every model-generated symbolic invocation in
 function, behaviour module, or MFA explicitly marks that target as trusted;
 unresolved strings are never executed.
 
-The runnable Agent example also shows the application-facing conversation
-contract. `await_input/2` returns the first question; each `reply/3` returns
-either another user-owned request or the terminal outcome. For event-driven
-channels, use mission subscriptions and correlated `respond/3` calls instead.
-See the full [Spectre Agent integration guide](../docs/SPECTRE_AGENT_INTEGRATION.md).
+The two runnable Agent examples show both conversation contracts:
+
+- `spectre_agent.exs` keeps one live mission pid; `await_input/2` returns the
+  first question and each `reply/3` advances it;
+- `persistent_spectre_agent.exs` configures `Spectre.Directive.Store`, starts
+  from an Agent route, and resumes every answer through an ordinary
+  `Spectre.ask/3` carrying the same conversation id. Each external message also
+  carries a stable turn id; the example retries the completed turn and receives
+  the stored reply without advancing the mission twice. Its in-memory Store
+  serializes revision checks in one local process; use a transactional Store
+  with the same compare-and-swap rule when conversations can run on many nodes.
+
+For event-driven channels around a live mission, use subscriptions and
+correlated `respond/3` calls. See the full
+[Spectre Agent integration guide](../docs/SPECTRE_AGENT_INTEGRATION.md).

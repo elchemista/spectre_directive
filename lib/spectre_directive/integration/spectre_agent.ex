@@ -15,12 +15,14 @@ defmodule SpectreDirective.Integration.SpectreAgent do
   alias SpectreDirective.Context
   alias SpectreDirective.Integration
   alias SpectreDirective.Integration.SpectreAgent.Codec
+  alias SpectreDirective.Integration.SpectreAgent.Conversation
   alias SpectreDirective.Integration.SpectreAgent.DecisionResolver
   alias SpectreDirective.Integration.SpectreAgent.Prompt
 
   @spectre_module :"Elixir.Spectre"
   @spectre_llm_module :"Elixir.Spectre.LLM"
   @spectre_result_module :"Elixir.Spectre.Result"
+  @spectre_turn_reply_module :"Elixir.Spectre.Turn.Handler.Reply"
   @response_key :spectre_directive_response
 
   @doc "Starts an authored directive whose reasoning turns use a Spectre Agent."
@@ -42,6 +44,31 @@ defmodule SpectreDirective.Integration.SpectreAgent do
       |> Keyword.put_new(:execution, :auto)
 
     SpectreDirective.start_directive(owner, runtime_opts)
+  end
+
+  @doc false
+  @spec start_turn(module(), binary() | atom() | nil, term(), term(), keyword()) :: term()
+  def start_turn(owner, name, input, spectre_context, opts \\ [])
+      when is_atom(owner) and is_list(opts) do
+    with :ok <- turn_handler_available(),
+         {:ok, transition} <- Conversation.start(owner, name, input, spectre_context, opts) do
+      conversation_result(input, spectre_context, transition, :started)
+    end
+  end
+
+  @doc false
+  @spec turn_reply(map()) :: term()
+  def turn_reply(%{reply_text: reply_text, metadata: metadata}) do
+    if Code.ensure_loaded?(@spectre_turn_reply_module) do
+      {:reply,
+       struct(@spectre_turn_reply_module,
+         reply_text: reply_text,
+         events: [%{type: :spectre_directive_resumed}],
+         metadata: %{spectre_directive: metadata}
+       )}
+    else
+      {:error, :spectre_turn_handler_unavailable}
+    end
   end
 
   @doc false
@@ -96,6 +123,13 @@ defmodule SpectreDirective.Integration.SpectreAgent do
       else: {:error, :spectre_unavailable}
   end
 
+  @spec turn_handler_available() :: :ok | {:error, :spectre_turn_handler_unavailable}
+  defp turn_handler_available do
+    if Code.ensure_loaded?(@spectre_turn_reply_module),
+      do: :ok,
+      else: {:error, :spectre_turn_handler_unavailable}
+  end
+
   @spec llm_available() :: :ok | {:error, :spectre_llm_unavailable}
   defp llm_available do
     if Code.ensure_loaded?(@spectre_llm_module),
@@ -115,6 +149,7 @@ defmodule SpectreDirective.Integration.SpectreAgent do
 
     opts =
       spectre_opts
+      |> Keyword.put(:turn_handlers, false)
       |> Keyword.put(:via, [:regex])
       |> Keyword.put(:semantic_cache?, false)
       |> Keyword.put(:input_pipeline, [])
@@ -178,6 +213,22 @@ defmodule SpectreDirective.Integration.SpectreAgent do
         reply_text: "",
         events: [%{type: :spectre_directive_reasoned}],
         metadata: %{@response_key => response}
+      )
+    else
+      {:error, :spectre_result_unavailable}
+    end
+  end
+
+  @spec conversation_result(term(), term(), map(), atom()) :: term()
+  defp conversation_result(input, spectre_context, transition, event) do
+    if Code.ensure_loaded?(@spectre_result_module) do
+      struct(@spectre_result_module,
+        input: input,
+        route: field(spectre_context, :route),
+        state: field(spectre_context, :state),
+        reply_text: transition.reply_text,
+        events: [%{type: :spectre_directive_conversation, event: event}],
+        metadata: %{spectre_directive: transition.metadata}
       )
     else
       {:error, :spectre_result_unavailable}

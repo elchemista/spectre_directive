@@ -58,8 +58,8 @@ defmodule SpectreDirective.Integration do
   end
 
   @spec register_host(module(), host(), keyword()) :: :ok
-  defp register_host(module, :spectre_agent, _opts) do
-    SpectreDirective.Integration.SpectreAgent.Compiler.register(module)
+  defp register_host(module, :spectre_agent, opts) do
+    SpectreDirective.Integration.SpectreAgent.Compiler.register(module, opts)
   end
 
   defp register_host(module, :gen_server, opts) do

@@ -99,9 +99,12 @@ defmodule SpectreDirective.MixProject do
         "Host contracts": [
           Spectre.Directive.Handler,
           Spectre.Directive.Invoker,
+          Spectre.Directive.Presenter,
           Spectre.Directive.Policy,
           Spectre.Directive.Reasoner,
           Spectre.Directive.RequestHandler,
+          Spectre.Directive.Snapshot,
+          Spectre.Directive.Store,
           SpectreDirective.AgentDecision,
           SpectreDirective.Invocation,
           SpectreDirective.Invocation.Result,
@@ -130,7 +133,8 @@ defmodule SpectreDirective.MixProject do
       {:credo, "~> 1.7", only: [:dev, :test], runtime: false},
       {:dialyxir, "~> 1.4", only: [:dev], runtime: false},
       {:ex_doc, "~> 0.38", only: :dev, runtime: false},
-      {:spectre, github: "elchemista/spectre", only: :test}
+      {:spectre,
+       github: "elchemista/spectre", ref: "c5613034bdc361f370938682f8ecb06a5bb7a0fb", only: :test}
     ]
   end
 end
