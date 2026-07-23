@@ -62,6 +62,7 @@ jobs:
           mix run examples/automatic_runtime.exs
           mix run examples/dsl_showcase.exs
           mix run examples/spectre_agent.exs
+          mix run examples/persistent_spectre_agent.exs
 
   credo:
     name: Credo
