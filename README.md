@@ -13,9 +13,9 @@ It works in four forms:
 - alongside `Spectre.Agent` through `use Spectre.Directive`.
 
 The package does **not** implement memory, retrieval, an LLM provider, tool
-discovery, Kinetic actions, persistence, or application policy. Those remain
-host concerns. Directive owns only the state and legal transitions of one live
-mission.
+discovery, Kinetic actions, a persistence backend, or application policy.
+Those remain host concerns. Directive owns the state and legal transitions of
+one mission and exposes a Store behaviour for hosts that persist snapshots.
 
 Version `0.1.0` is the first public release and remains intentionally pre-1.0:
 the core contracts are tested and documented, while minor releases may still
@@ -90,6 +90,7 @@ mix run examples/pure_loop.exs
 mix run examples/automatic_runtime.exs
 mix run examples/dsl_showcase.exs
 MIX_ENV=test mix run examples/spectre_agent.exs
+MIX_ENV=test mix run examples/persistent_spectre_agent.exs
 ```
 
 See the [examples guide](examples/EXAMPLES.md) for the DSL declaration reference
@@ -394,20 +395,38 @@ conversation loop over user-owned requests.
 ## Spectre Agent integration
 
 `Spectre.Directive` detects an Agent at compile time. Put `use Spectre.Agent`
-first so Directive can add its private reasoning route to the Agent's normal
-DSL compilation:
+first so Directive can add its private reasoning route during normal Agent DSL
+compilation.
+
+There are two integration modes. Without a Store, `start_directive/2` starts a
+live mission pid; the host answers it with `reply/3` or correlated `respond/3`.
+With a Store, Directive also registers an ordered Spectre turn handler;
+`start_directive_turn/3` snapshots the mission and later ordinary
+`Spectre.ask/3` calls resume it by conversation id.
 
 ```elixir
 defmodule MyApp.ResearchAgent do
   use Spectre.Agent,
     model: MyApp.Models.default()
 
-  use Spectre.Directive
+  use Spectre.Directive,
+    store: MyApp.DirectiveStore,
+    store_namespace: :research_missions
 
   directive "client-research" do
     mission "Research the client"
     success "Return a sourced summary"
     mode :guided
+  end
+
+  flow :research do
+    on :START_RESEARCH, regex: ~r/^start research$/i do
+      run :start_research
+    end
+  end
+
+  def start_research(input, spectre_context) do
+    start_directive_turn("client-research", input, spectre_context)
   end
 
   @impl Spectre.Directive.Handler
@@ -419,34 +438,89 @@ defmodule MyApp.ResearchAgent do
 end
 ```
 
-Start through the generated Agent API:
+A Store implements only the host-owned `load/2` and `snapshot/3` callbacks:
 
 ```elixir
-{:ok, mission} =
-  MyApp.ResearchAgent.start_directive("client-research",
-    input: %{url: "https://example.test/acme"}
+defmodule MyApp.DirectiveStore do
+  @behaviour Spectre.Directive.Store
+
+  def load(key, opts), do: MyApp.Snapshots.load(key, opts)
+  def snapshot(key, snapshot, opts), do: MyApp.Snapshots.put(key, snapshot, opts)
+end
+```
+
+The snapshot contains the complete mission, living plan, pending request,
+information, trace, and outcome. Its schema `version` is distinct from its
+monotonic `revision`, which lets a transactional Store reject stale concurrent
+writes.
+
+Start and resume through normal Agent turns using one stable conversation id.
+For a request/response transport, also map each external message id to a stable
+Spectre `turn_id`:
+
+```elixir
+{:ok, confirmation} =
+  Spectre.ask(MyApp.ResearchAgent, "start research",
+    conversation_id: "research-42",
+    turn_id: "message-1"
   )
+
+{:ok, first_question} =
+  Spectre.ask(MyApp.ResearchAgent, "yes",
+    conversation_id: "research-42",
+    turn_id: "message-2"
+  )
+
+{:ok, second_question} =
+  Spectre.ask(MyApp.ResearchAgent, "Acme",
+    conversation_id: "research-42",
+    turn_id: "message-3"
+  )
+
+{:ok, completed} =
+  Spectre.ask(MyApp.ResearchAgent, "Italian",
+    conversation_id: "research-42",
+    turn_id: "message-4"
+  )
+
+{:outcome, outcome} = completed.metadata.spectre_directive.boundary
 ```
 
-When the Agent returns `{:ask, question}`, the mission pauses at a correlated
-`:question` request. A CLI or test can carry multiple questions through to the
-terminal outcome without handling internal reasoning requests:
+The snapshot records visible turn receipts. Retrying an already-applied input
+with the same `turn_id` replays its reply without consuming the answer twice,
+even after later turns; reusing the id with different input fails closed. A
+Store revision check is still required for concurrent different turns and
+cross-node ownership.
+
+Each `{:ask, question}` becomes the next visible reply, and ordered answers are
+available to the reasoner in `context.information`. Confirmations accept
+explicit yes/no text; structured UIs and agent protocols can pass an exact
+response in `input.meta.spectre_directive_response`.
+
+At completion, `on_complete` runs, the outcome and final plan are stored in an
+inactive snapshot, and the temporary mission process is stopped. The next new
+message returns to normal Spectre routing.
+
+Automatic reasoner, invocation, and completion callbacks executed between two
+durable boundaries may run again if a Store write fails before its commit can
+be observed. Any callback that crosses an external side-effect boundary must
+therefore be idempotent. A stable turn id prevents an already-committed turn
+from being applied twice; it cannot prove that an uncommitted callback did not
+perform an external effect.
+
+For a live mission instead, omit `store:`:
 
 ```elixir
+{:ok, mission} = MyApp.ResearchAgent.start_directive("client-research")
 {:ok, {:request, first}} = Spectre.Directive.await_input(mission)
-IO.puts(first.payload.question)
-
 {:ok, {:request, second}} = Spectre.Directive.reply(mission, "Acme")
-IO.puts(second.payload.question)
-
 {:ok, {:outcome, outcome}} = Spectre.Directive.reply(mission, "Italian")
+:ok = Spectre.Directive.stop(mission)
 ```
 
-For LiveView, bots, and other asynchronous channels, start with
-`subscribers: [channel_pid]`, present each `:request` event, and correlate the
-user answer with `Spectre.Directive.respond(mission_id, request.id, answer)`.
-Do not pass that answer to `Spectre.ask/3`: doing so starts a separate Agent
-turn instead of resuming the waiting Directive mission.
+For LiveView, bots, and asynchronous channels around a live mission, start
+with `subscribers: [channel_pid]` and correlate each answer through
+`Spectre.Directive.respond(mission_id, request.id, answer)`.
 
 By default, reasoning uses the model configuration already carried by the
 Spectre turn. Override `handle_directive({:reason, context}, spectre_context)`
@@ -462,8 +536,8 @@ runs when Spectre is absent. JSON model responses require `Jason` to be
 available in the host application.
 
 See the complete [Spectre Agent integration guide](docs/SPECTRE_AGENT_INTEGRATION.md)
-for accessing ordered answers in `context.information`, confirmation and policy
-requests, channel routing, and `on_complete` semantics.
+for Store concurrency, custom presenters, structured responses, ordered
+answers, policy requests, live channels, timeouts, and completion semantics.
 
 ## GenServer integration
 

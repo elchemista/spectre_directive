@@ -7,6 +7,21 @@ and the project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Added
+
+- `Spectre.Directive.Store` and versioned `Spectre.Directive.Snapshot` contracts
+  for host-owned persistence of a complete mission and living plan.
+- Store-backed Spectre Agent conversations that resume questions,
+  confirmations, policy requests, and completion through ordinary Agent turns.
+- Ordered `Spectre.Turn.Handler` integration that remains optional to both
+  Spectre and Directive.
+- `Spectre.Directive.Presenter` for channel-specific rendering while retaining
+  the typed request or outcome in result metadata.
+- Replay receipts keyed by a stable Spectre `turn_id`, preventing an ambiguous
+  delivery retry from consuming the same Directive input twice.
+- A runnable persisted-Agent example and expanded integration documentation for
+  repeated questions, completion, Store concurrency, retries, and idempotency.
+
 ## [0.1.0] - 2026-07-23
 
 ### Added

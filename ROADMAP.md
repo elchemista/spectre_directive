@@ -25,8 +25,10 @@ still lead to breaking changes between minor versions.
 The next phase will focus on operating the existing model reliably rather than
 expanding it into a general agent platform:
 
-- documented snapshot and restoration conventions for hosts that persist pure
-  loop state;
+- adapter conformance helpers for Store revision checks and ambiguous delivery
+  simulations;
+- explicit receipt-retention and snapshot-compaction policies for long-running
+  missions;
 - telemetry events for request latency, callback execution, plan revisions,
   and terminal outcomes;
 - compatibility testing across supported Elixir and Erlang/OTP combinations;
@@ -44,6 +46,23 @@ These ideas require real-world evidence before they become commitments:
 - richer inspection and replay tooling over causal traces;
 - distributed mission ownership and hand-off patterns;
 - interoperability guides for tool-selection, memory, and retrieval systems.
+
+## Ecosystem integration direction
+
+Directive should participate in a shared Spectre turn vocabulary without
+becoming the protocol, memory system, or capability executor:
+
+- Spectre owns the local Agent turn and pre-route handler ordering;
+- Directive owns mission/plan transitions and Store snapshots;
+- SpectrePulse may own agent-to-agent envelopes, correlation, remote task
+  lifecycle, retries, and delivery;
+- SpectreMnemonic may supply memory through Spectre's memory boundary;
+- SpectreLens may supply browser capabilities through trusted actions/Skills.
+
+The current Store-backed handler is intentionally one-way: an active Directive
+can claim a normal Agent input and return a typed reply. Future distributed
+handoff should build on concrete Pulse task semantics and stable identities,
+not expand the handler into a generic wire protocol or shared mutable state.
 
 ## Deliberate non-goals
 
