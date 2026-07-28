@@ -63,7 +63,7 @@ The host owns:
 ```elixir
 def deps do
   [
-    {:spectre_directive, "~> 0.1.0"}
+    {:spectre_directive, github: "elchemista/spectre_directive"}
   ]
 end
 ```
@@ -79,7 +79,27 @@ def deps do
 end
 ```
 
-`spectre` is optional. A standalone or GenServer host does not need it.
+The Spectre dependency supplies the immutable Stack contract. Directive's
+pure reducer, GenServer integration, and optional runtime remain usable
+without mounting a Stack.
+
+Version 0.1.2 exposes its continuity configuration through the package-local
+Stack DSL:
+
+```elixir
+defmodule MyApp.AI do
+  use Spectre.Stack, id: :my_app
+
+  install Spectre.Directive do
+    store MyApp.ContinuityStore
+    clock MyApp.Clock
+    resident_runs 16
+  end
+end
+```
+
+The installation is immutable data. It does not start or claim the legacy
+Directive runtime, stores, timers, or globally named processes.
 
 For a complete first walkthrough, read [Getting started](docs/GETTING_STARTED.md).
 The repository also contains examples that run without an LLM or external

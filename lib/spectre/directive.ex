@@ -4,7 +4,8 @@ defmodule Spectre.Directive do
 
   Directive can be used as a pure reducer, as a supervised OTP runtime, inside
   a regular GenServer, or together with `Spectre.Agent`. The package defines
-  this namespace without requiring Spectre itself as a dependency.
+  this namespace and publishes a data-only Spectre Stack definition without
+  claiming ownership of its optional legacy runtime.
 
   Use the DSL in an application module:
 
@@ -31,9 +32,28 @@ defmodule Spectre.Directive do
   alias SpectreDirective.Request
   alias SpectreDirective.Trace.Entry
 
+  use Spectre.Stack.Installable,
+    id: :directive,
+    version: "0.1.2",
+    contract: 1,
+    spectre: "~> 0.1.2",
+    provides: [{:service, :continuity}],
+    requires: [],
+    conflicts: [],
+    operations: [],
+    actions: [],
+    resources: [],
+    dsl: __MODULE__,
+    metadata: %{application: :spectre_directive, role: :continuity}
+
   @type mission_ref :: pid() | binary()
   @type runtime_result(value) :: {:ok, value} | {:error, term()}
   @type input_boundary :: {:request, Request.t()} | {:outcome, Outcome.t()}
+
+  @impl Spectre.Stack.Installable
+  def compile(opts, block, caller) do
+    Spectre.Directive.StackCompiler.compile(opts, block, caller)
+  end
 
   @doc "Imports the Directive DSL and installs the appropriate host integration."
   @spec __using__(keyword()) :: Macro.t()
