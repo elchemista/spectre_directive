@@ -1,8 +1,8 @@
 defmodule SpectreDirective.Examples.ProfileAgent do
   @moduledoc false
 
-  # Order matters: Directive detects the existing Spectre Agent at compile
-  # time and adds its private reasoning route to the Agent's normal routes.
+  # Order matters for the Agent-local authoring form: Directive detects the
+  # existing Spectre Agent and installs its reasoning integration.
   use Spectre.Agent
   use Spectre.Directive
 

@@ -18,6 +18,7 @@ defmodule SpectreDirective.Integration.SpectreAgent do
   alias SpectreDirective.Integration.SpectreAgent.Conversation
   alias SpectreDirective.Integration.SpectreAgent.DecisionResolver
   alias SpectreDirective.Integration.SpectreAgent.Prompt
+  alias SpectreDirective.Integration.SpectreAgent.TurnHandler
 
   @spectre_module :"Elixir.Spectre"
   @spectre_llm_module :"Elixir.Spectre.LLM"
@@ -80,7 +81,7 @@ defmodule SpectreDirective.Integration.SpectreAgent do
     spectre_opts = Keyword.get(opts, :spectre_opts, [])
 
     with :ok <- available(agent, owner),
-         {:ok, result} <- ask(agent, context, spectre_opts),
+         {:ok, result} <- ask(agent, owner, context, spectre_opts),
          {:ok, response} <- response(result),
          {:ok, decision} <- AgentDecision.new(response),
          {:ok, decision} <- DecisionResolver.resolve(owner, decision, context) do
@@ -100,6 +101,47 @@ defmodule SpectreDirective.Integration.SpectreAgent do
       end
 
     spectre_result(input, spectre_context, response)
+  end
+
+  @doc false
+  @spec reason_reply(term(), keyword()) :: term()
+  def reason_reply(request, opts) when is_map(request) and is_list(opts) do
+    owner = Keyword.get(opts, :owner, Map.get(request, :agent))
+
+    response =
+      with {:ok, context} <- directive_context(Map.get(request, :input)) do
+        spectre_context = %{
+          agent: Map.get(request, :agent),
+          input: Map.get(request, :input),
+          state: Map.get(request, :state),
+          memory: Map.get(request, :memory),
+          assigns: Map.get(request, :assigns, %{}),
+          route: nil,
+          opts: opts
+        }
+
+        if is_atom(owner) and function_exported?(owner, :handle_directive, 2) do
+          owner.handle_directive({:reason, context}, spectre_context)
+        else
+          default_reason(owner, context, spectre_context)
+        end
+      end
+
+    if Code.ensure_loaded?(@spectre_turn_reply_module) do
+      {:reply,
+       struct(@spectre_turn_reply_module,
+         reply_text: "",
+         events: [%{type: :spectre_directive_reasoned}],
+         metadata: %{@response_key => response}
+       )}
+    else
+      {:error, :spectre_turn_handler_unavailable}
+    end
+  rescue
+    error ->
+      {:error, {:directive_reasoning_exception, error.__struct__, Exception.message(error)}}
+  catch
+    kind, reason -> {:error, {:directive_reasoning_failure, kind, reason}}
   end
 
   @doc "Uses the Agent's configured Spectre model for one default reasoning turn."
@@ -137,8 +179,9 @@ defmodule SpectreDirective.Integration.SpectreAgent do
       else: {:error, :spectre_llm_unavailable}
   end
 
-  @spec ask(term(), Context.t(), keyword()) :: {:ok, term()} | {:error, term()}
-  defp ask(agent, %Context{} = context, spectre_opts) when is_list(spectre_opts) do
+  @spec ask(term(), module(), Context.t(), keyword()) :: {:ok, term()} | {:error, term()}
+  defp ask(agent, owner, %Context{} = context, spectre_opts)
+       when is_atom(owner) and is_list(spectre_opts) do
     input = %{
       text: Integration.marker(),
       meta: %{
@@ -149,7 +192,7 @@ defmodule SpectreDirective.Integration.SpectreAgent do
 
     opts =
       spectre_opts
-      |> Keyword.put(:turn_handlers, false)
+      |> Keyword.put(:turn_handlers, [{TurnHandler, owner: owner}])
       |> Keyword.put(:via, [:regex])
       |> Keyword.put(:semantic_cache?, false)
       |> Keyword.put(:input_pipeline, [])

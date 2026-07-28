@@ -337,7 +337,7 @@ defmodule SpectreDirective.HostIntegrationTest do
   end
 
   describe "real Spectre Agent integration" do
-    test "Agent private route reasons, resolves a symbolic invocation, and completes" do
+    test "Agent turn handler reasons, resolves a symbolic invocation, and completes" do
       assert SpectreDirective.IntegratedSpectreAgent.__spectre_directive_host__() ==
                :spectre_agent
 

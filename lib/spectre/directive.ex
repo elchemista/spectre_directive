@@ -4,8 +4,9 @@ defmodule Spectre.Directive do
 
   Directive can be used as a pure reducer, as a supervised OTP runtime, inside
   a regular GenServer, or together with `Spectre.Agent`. The package defines
-  this namespace and publishes a data-only Spectre Stack definition without
-  claiming ownership of its optional legacy runtime.
+  this namespace and publishes an immutable Spectre Stack installation that
+  activates continuity on Stack-bound Agents without claiming ownership of its
+  optional runtime.
 
   Use the DSL in an application module:
 
@@ -43,6 +44,7 @@ defmodule Spectre.Directive do
     operations: [],
     actions: [],
     resources: [],
+    agent_extensions: [Spectre.Directive.Extension],
     dsl: __MODULE__,
     metadata: %{application: :spectre_directive, role: :continuity}
 
@@ -60,6 +62,24 @@ defmodule Spectre.Directive do
   defmacro __using__(opts) do
     quote do
       use SpectreDirective, unquote(opts)
+    end
+  end
+
+  @doc """
+  Returns the immutable Directive installation bound to an Agent.
+
+  Stack-bound Agents receive this configuration automatically through
+  `Spectre.Directive.Extension`; no additional `use Spectre.Directive` is
+  required to activate the continuity turn handler.
+  """
+  @spec config(module()) :: {:ok, map()} | {:error, term()}
+  def config(agent) when is_atom(agent) do
+    with {:ok, mount} <- Spectre.Extension.fetch(agent, :directive),
+         config when is_map(config) <- mount.compiled do
+      {:ok, config}
+    else
+      {:error, _reason} = error -> error
+      _other -> {:error, :invalid_directive_configuration}
     end
   end
 

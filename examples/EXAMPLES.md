@@ -33,8 +33,11 @@ A step may use `kind`, `flexibility`, `purpose`, `reason`, `prompt`, `expects`,
 
 ## Spectre Agent integration
 
-In an Agent module, call `use Spectre.Agent` before `use Spectre.Directive`.
-Directive then adds an internal route and generates `start_directive/2`.
+In an Agent-local authoring module, call `use Spectre.Agent` before
+`use Spectre.Directive`. Directive installs its reasoning integration and
+generates `start_directive/2`. A Stack-installed Agent receives the continuity
+handler automatically; the second `use` is needed only to author Directive DSL
+blocks or generate those convenience functions.
 
 Override `handle_directive({:reason, context}, spectre_context)` for custom
 reasoning, or keep the default callback to use the model configured by Spectre.
