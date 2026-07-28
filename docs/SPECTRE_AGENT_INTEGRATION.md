@@ -71,10 +71,11 @@ Store's revision check.
 
 ## Define the Agent
 
-Put `use Spectre.Agent` before `use Spectre.Directive`. Passing `store:` adds
-Directive's adapter to Spectre's ordered turn-handler pipeline and
-generates `start_directive_turn/3,4` in addition to the existing
-`start_directive/1,2` API.
+An Agent selecting a Stack that installs Directive receives its configuration
+and ordered turn handler automatically. Add `use Spectre.Directive` after
+`use Spectre.Agent` only when that same module also authors Directive blocks or
+needs the generated `start_directive_turn/3,4` and `start_directive/1,2`
+convenience APIs.
 
 ```elixir
 defmodule MyApp.ProfileAgent do
@@ -174,9 +175,9 @@ serializes Spectre turns in one process. Stateless module calls remain valid,
 but the Store must reject concurrent stale snapshots, especially across nodes.
 
 An already-open Spectre policy always runs before Directive. The first
-configured handler that claims a normal turn wins. A trusted host can bypass
-every handler for an internal call with `turn_handlers: false`;
-do not derive that option from untrusted message content.
+configured handler that claims a normal turn wins. Directive reasoning uses
+its dedicated trusted `TurnHandler`; it does not disable or bypass the Agent's
+turn-handler pipeline.
 
 ## How the Agent asks for more information
 
@@ -202,8 +203,10 @@ end
 
 The temporary Directive runtime executes internal `:reason` and `:invoke`
 requests automatically until it reaches another user-owned request or an
-outcome. Its internal call to the Spectre Agent explicitly bypasses turn
-handlers, so it cannot recursively resume itself.
+outcome. Its internal call installs a dedicated reasoning turn handler. That
+handler recognizes the trusted internal marker before attempting persisted
+conversation resume, so reasoning still uses Spectre's normal turn boundary
+without recursively resuming itself.
 
 The built-in text adapter maps:
 
@@ -313,8 +316,11 @@ stops its temporary mission if Spectre terminates the local callback worker.
 
 ## Keep a live mission instead
 
-Without `store:`, Directive does not register a turn handler. The existing
-generated API starts one supervised mission process:
+In the Agent-local `use Spectre.Directive` form, omitting `store:` does not
+register a conversation-resume turn handler; the generated API starts one
+supervised mission process. A Stack installation always contributes the
+pass-through continuity handler, which returns `:cont` when no Store or active
+snapshot can claim the turn:
 
 ```elixir
 {:ok, mission} =

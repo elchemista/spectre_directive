@@ -50,11 +50,14 @@ defmodule SpectreDirective do
   defmacro __using__(opts) do
     opts = evaluate_use_options(opts, __CALLER__)
 
-    quote bind_quoted: [opts: opts] do
+    spectre_agent_before? =
+      Integration.spectre_agent_available?(__CALLER__.module)
+
+    quote bind_quoted: [opts: opts, spectre_agent_before?: spectre_agent_before?] do
       import SpectreDirective.DSL
 
       Builder.register(__MODULE__)
-      Integration.register(__MODULE__, opts)
+      Integration.register(__MODULE__, opts, spectre_agent_before?)
       @before_compile SpectreDirective.DSL
     end
   end

@@ -11,15 +11,37 @@ defmodule SpectreDirective.Integration do
   @type host :: :standalone | :spectre_agent | :gen_server
 
   @doc false
-  @spec register(module(), keyword()) :: host()
-  def register(module, opts) when is_atom(module) and is_list(opts) do
-    host = opts |> Keyword.get(:host, :auto) |> normalize_host(module)
+  @spec spectre_agent_available?(module()) :: boolean()
+  def spectre_agent_available?(module) when is_atom(module), do: spectre_agent?(module)
+
+  @doc false
+  @spec register(module(), keyword(), boolean()) :: host()
+  def register(module, opts, spectre_agent_before?)
+      when is_atom(module) and is_list(opts) and is_boolean(spectre_agent_before?) do
+    requested = Keyword.get(opts, :host, :auto)
+
+    host =
+      requested
+      |> normalize_host(module)
+      |> preserve_source_order!(requested, spectre_agent_before?)
+
     validate_host!(host, module)
     register_attributes(module, host, opts)
     install_unified_handler(module, host)
     register_host(module, host, opts)
     host
   end
+
+  @spec preserve_source_order!(host(), term(), boolean()) :: host()
+  defp preserve_source_order!(:spectre_agent, :auto, false), do: :standalone
+
+  defp preserve_source_order!(:spectre_agent, requested, false)
+       when requested in [:spectre_agent, :spectre] do
+    raise ArgumentError,
+          "host :spectre_agent requires use Spectre.Agent before use Spectre.Directive"
+  end
+
+  defp preserve_source_order!(host, _requested, _spectre_agent_before?), do: host
 
   @doc false
   @spec before_compile(Macro.Env.t()) :: Macro.t()
@@ -144,7 +166,7 @@ defmodule SpectreDirective.Integration do
   @spec detect_late_host!(host(), module()) :: :ok | no_return()
   defp detect_late_host!(:standalone, module) do
     cond do
-      spectre_agent?(module) ->
+      spectre_agent?(module) or compiled_spectre_agent?(module) ->
         raise ArgumentError, "use Spectre.Agent must appear before use Spectre.Directive"
 
       gen_server?(module) ->
@@ -156,6 +178,12 @@ defmodule SpectreDirective.Integration do
   end
 
   defp detect_late_host!(_host, _module), do: :ok
+
+  @spec compiled_spectre_agent?(module()) :: boolean()
+  defp compiled_spectre_agent?(module) do
+    Module.defines?(module, {:__spectre_definition__, 0}) or
+      Module.defines?(module, {:__spectre_config__, 0})
+  end
 
   @spec install_unified_handler(module(), host()) :: :ok
   defp install_unified_handler(_module, :standalone), do: :ok

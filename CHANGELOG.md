@@ -9,6 +9,8 @@ and the project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 
+- A versioned `Spectre.Stack.Installable` facade with immutable `store`,
+  `clock`, and `resident_runs` declarations and no implicit runtime ownership.
 - `Spectre.Directive.Store` and versioned `Spectre.Directive.Snapshot` contracts
   for host-owned persistence of a complete mission and living plan.
 - Store-backed Spectre Agent conversations that resume questions,

@@ -4,7 +4,9 @@ defmodule Spectre.Directive do
 
   Directive can be used as a pure reducer, as a supervised OTP runtime, inside
   a regular GenServer, or together with `Spectre.Agent`. The package defines
-  this namespace without requiring Spectre itself as a dependency.
+  this namespace and publishes an immutable Spectre Stack installation that
+  activates continuity on Stack-bound Agents without claiming ownership of its
+  optional runtime.
 
   Use the DSL in an application module:
 
@@ -31,15 +33,53 @@ defmodule Spectre.Directive do
   alias SpectreDirective.Request
   alias SpectreDirective.Trace.Entry
 
+  use Spectre.Stack.Installable,
+    id: :directive,
+    version: "0.1.2",
+    contract: 1,
+    spectre: "~> 0.1.2",
+    provides: [{:service, :continuity}],
+    requires: [],
+    conflicts: [],
+    operations: [],
+    actions: [],
+    resources: [],
+    agent_extensions: [Spectre.Directive.Extension],
+    dsl: __MODULE__,
+    metadata: %{application: :spectre_directive, role: :continuity}
+
   @type mission_ref :: pid() | binary()
   @type runtime_result(value) :: {:ok, value} | {:error, term()}
   @type input_boundary :: {:request, Request.t()} | {:outcome, Outcome.t()}
+
+  @impl Spectre.Stack.Installable
+  def compile(opts, block, caller) do
+    Spectre.Directive.StackCompiler.compile(opts, block, caller)
+  end
 
   @doc "Imports the Directive DSL and installs the appropriate host integration."
   @spec __using__(keyword()) :: Macro.t()
   defmacro __using__(opts) do
     quote do
       use SpectreDirective, unquote(opts)
+    end
+  end
+
+  @doc """
+  Returns the immutable Directive installation bound to an Agent.
+
+  Stack-bound Agents receive this configuration automatically through
+  `Spectre.Directive.Extension`; no additional `use Spectre.Directive` is
+  required to activate the continuity turn handler.
+  """
+  @spec config(module()) :: {:ok, map()} | {:error, term()}
+  def config(agent) when is_atom(agent) do
+    with {:ok, mount} <- Spectre.Extension.fetch(agent, :directive),
+         config when is_map(config) <- mount.compiled do
+      {:ok, config}
+    else
+      {:error, _reason} = error -> error
+      _other -> {:error, :invalid_directive_configuration}
     end
   end
 

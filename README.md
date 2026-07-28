@@ -17,10 +17,10 @@ discovery, Kinetic actions, a persistence backend, or application policy.
 Those remain host concerns. Directive owns the state and legal transitions of
 one mission and exposes a Store behaviour for hosts that persist snapshots.
 
-Version `0.1.0` is the first public release and remains intentionally pre-1.0:
-the core contracts are tested and documented, while minor releases may still
-refine public APIs from user feedback. See the [changelog](CHANGELOG.md) for
-what ships and the [roadmap](ROADMAP.md) for likely next steps.
+The package remains intentionally pre-1.0: the core contracts are tested and
+documented, while minor releases may still refine public APIs from user
+feedback. See the [changelog](CHANGELOG.md) for what ships and the
+[roadmap](ROADMAP.md) for likely next steps.
 
 ## The contract
 
@@ -63,7 +63,7 @@ The host owns:
 ```elixir
 def deps do
   [
-    {:spectre_directive, "~> 0.1.0"}
+    {:spectre_directive, github: "elchemista/spectre_directive"}
   ]
 end
 ```
@@ -79,7 +79,43 @@ def deps do
 end
 ```
 
-`spectre` is optional. A standalone or GenServer host does not need it.
+The Spectre dependency supplies the immutable Stack contract. Directive's
+pure reducer, GenServer integration, and optional runtime remain usable
+without mounting a Stack.
+
+Version 0.1.2 exposes its continuity configuration through the package-local
+Stack DSL:
+
+```elixir
+defmodule MyApp.AI do
+  use Spectre.Stack, id: :my_app
+
+  install Spectre.Directive do
+    store MyApp.ContinuityStore
+    clock MyApp.Clock
+    resident_runs 16
+  end
+end
+
+defmodule MyApp.Agent do
+  use Spectre.Agent, stack: MyApp.AI
+
+  def handle_directive({:reason, context}, spectre_context) do
+    MyApp.MissionReasoner.decide(context, context: spectre_context)
+  end
+end
+```
+
+Selecting the Stack automatically binds Directive configuration and its
+ordered continuity turn handler. Active persisted missions resume before
+ordinary routing, and internal Directive reasoning uses a dedicated handler
+path that cannot recursively resume the same conversation. A second
+`use Spectre.Directive` is not required for that runtime integration.
+
+Use `use Spectre.Directive` only when the same module also authors `directive`
+blocks or needs the generated `start_directive*` convenience functions. The
+installation is immutable data; it does not start or claim the optional
+Directive runtime, stores, timers, or globally named processes.
 
 For a complete first walkthrough, read [Getting started](docs/GETTING_STARTED.md).
 The repository also contains examples that run without an LLM or external
@@ -394,9 +430,10 @@ conversation loop over user-owned requests.
 
 ## Spectre Agent integration
 
-`Spectre.Directive` detects an Agent at compile time. Put `use Spectre.Agent`
-first so Directive can add its private reasoning route during normal Agent DSL
-compilation.
+Selecting a Stack containing Directive installs continuity automatically.
+For Agent-local authored missions, put `use Spectre.Agent` before
+`use Spectre.Directive`; the latter imports the mission DSL and generated
+convenience functions.
 
 There are two integration modes. Without a Store, `start_directive/2` starts a
 live mission pid; the host answers it with `reply/3` or correlated `respond/3`.
