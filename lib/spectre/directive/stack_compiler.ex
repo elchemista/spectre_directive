@@ -13,7 +13,9 @@ defmodule Spectre.Directive.StackCompiler do
         resident_runs: 1
       )
 
-    compile_declarations(declarations, default_config(opts))
+    with :ok <- validate_turn_handler(opts) do
+      compile_declarations(declarations, default_config(opts))
+    end
   end
 
   @spec compile_declarations([{atom(), [term()]}], map()) :: {:ok, map()} | {:error, term()}
@@ -71,4 +73,12 @@ defmodule Spectre.Directive.StackCompiler do
 
   @spec valid_module?(term()) :: boolean()
   defp valid_module?(module), do: is_atom(module) and not is_nil(module)
+
+  @spec validate_turn_handler(keyword()) :: :ok | {:error, term()}
+  defp validate_turn_handler(opts) do
+    case Keyword.get(opts, :turn_handler, false) do
+      enabled? when is_boolean(enabled?) -> :ok
+      invalid -> {:error, {:invalid_turn_handler_option, invalid}}
+    end
+  end
 end

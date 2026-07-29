@@ -6,7 +6,9 @@ defmodule Spectre.Directive do
   a regular GenServer, or together with `Spectre.Agent`. The package defines
   this namespace and publishes an immutable Spectre Stack installation that
   activates continuity on Stack-bound Agents without claiming ownership of its
-  optional runtime.
+  optional runtime. The standalone mission engine remains an explicitly
+  selected host facility; it is never used as a second `Spectre.Run`
+  executor.
 
   Use the DSL in an application module:
 
@@ -35,9 +37,9 @@ defmodule Spectre.Directive do
 
   use Spectre.Stack.Installable,
     id: :directive,
-    version: "0.1.2",
+    version: "0.1.3",
     contract: 1,
-    spectre: "~> 0.1.2",
+    spectre: "~> 0.1.3",
     provides: [{:service, :continuity}],
     requires: [],
     conflicts: [],
@@ -69,8 +71,9 @@ defmodule Spectre.Directive do
   Returns the immutable Directive installation bound to an Agent.
 
   Stack-bound Agents receive this configuration automatically through
-  `Spectre.Directive.Extension`; no additional `use Spectre.Directive` is
-  required to activate the continuity turn handler.
+  `Spectre.Directive.Extension`. The continuity turn handler is installed only
+  when the package is mounted with `turn_handler: true`; the default
+  installation contributes data and no competing turn executor.
   """
   @spec config(module()) :: {:ok, map()} | {:error, term()}
   def config(agent) when is_atom(agent) do

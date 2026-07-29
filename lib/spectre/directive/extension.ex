@@ -50,10 +50,21 @@ defmodule Spectre.Directive.Extension do
       |> maybe_put(:clock, Map.get(config, :clock))
       |> maybe_put(:resident_runs, Map.get(config, :resident_runs))
 
-    [
-      directive: config,
-      turn_handlers: [{TurnHandler, handler_opts}]
-    ]
+    base = [directive: config]
+
+    if turn_handler?(config) do
+      Keyword.put(base, :turn_handlers, [{TurnHandler, handler_opts}])
+    else
+      base
+    end
+  end
+
+  @spec turn_handler?(map()) :: boolean()
+  defp turn_handler?(config) do
+    config
+    |> Map.get(:options, [])
+    |> Keyword.get(:turn_handler, false)
+    |> Kernel.==(true)
   end
 
   @spec maybe_put(keyword(), atom(), term()) :: keyword()

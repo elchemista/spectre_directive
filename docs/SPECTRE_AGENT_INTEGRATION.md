@@ -71,8 +71,10 @@ Store's revision check.
 
 ## Define the Agent
 
-An Agent selecting a Stack that installs Directive receives its configuration
-and ordered turn handler automatically. Add `use Spectre.Directive` after
+An Agent selecting a Stack that installs Directive receives its configuration.
+The ordered turn handler is added only when that installation explicitly sets
+`turn_handler: true`. This keeps the standalone mission engine outside the
+core `Spectre.Run` continuation by default. Add `use Spectre.Directive` after
 `use Spectre.Agent` only when that same module also authors Directive blocks or
 needs the generated `start_directive_turn/3,4` and `start_directive/1,2`
 convenience APIs.
@@ -318,9 +320,10 @@ stops its temporary mission if Spectre terminates the local callback worker.
 
 In the Agent-local `use Spectre.Directive` form, omitting `store:` does not
 register a conversation-resume turn handler; the generated API starts one
-supervised mission process. A Stack installation always contributes the
-pass-through continuity handler, which returns `:cont` when no Store or active
-snapshot can claim the turn:
+supervised mission process. A Stack installation contributes the pass-through
+continuity handler only with `turn_handler: true`; the default installation is
+configuration-only. The opted-in handler returns `:cont` when no Store or
+active snapshot can claim the turn:
 
 ```elixir
 {:ok, mission} =

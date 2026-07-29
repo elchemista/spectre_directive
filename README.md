@@ -83,14 +83,14 @@ The Spectre dependency supplies the immutable Stack contract. Directive's
 pure reducer, GenServer integration, and optional runtime remain usable
 without mounting a Stack.
 
-Version 0.1.2 exposes its continuity configuration through the package-local
+Version 0.1.3 exposes its continuity configuration through the package-local
 Stack DSL:
 
 ```elixir
 defmodule MyApp.AI do
   use Spectre.Stack, id: :my_app
 
-  install Spectre.Directive do
+  install Spectre.Directive, turn_handler: true do
     store MyApp.ContinuityStore
     clock MyApp.Clock
     resident_runs 16
@@ -106,11 +106,14 @@ defmodule MyApp.Agent do
 end
 ```
 
-Selecting the Stack automatically binds Directive configuration and its
-ordered continuity turn handler. Active persisted missions resume before
-ordinary routing, and internal Directive reasoning uses a dedicated handler
-path that cannot recursively resume the same conversation. A second
-`use Spectre.Directive` is not required for that runtime integration.
+Selecting the Stack always binds Directive configuration. The ordered
+continuity turn handler is deliberately opt-in with `turn_handler: true`.
+Active persisted missions can then resume before ordinary routing, and
+internal Directive reasoning uses a dedicated handler path that cannot
+recursively resume the same conversation. Without that option Directive does
+not participate in the turn pipeline and cannot compete with
+`Spectre.Runtime.start/3`, `advance/2`, or `resume/3`. A second
+`use Spectre.Directive` is not required for the opted-in integration.
 
 Use `use Spectre.Directive` only when the same module also authors `directive`
 blocks or needs the generated `start_directive*` convenience functions. The
@@ -430,14 +433,16 @@ conversation loop over user-owned requests.
 
 ## Spectre Agent integration
 
-Selecting a Stack containing Directive installs continuity automatically.
-For Agent-local authored missions, put `use Spectre.Agent` before
-`use Spectre.Directive`; the latter imports the mission DSL and generated
-convenience functions.
+Selecting a Stack containing Directive installs its continuity configuration
+automatically. Add `turn_handler: true` to that installation only when stored
+missions should participate in ordinary turns. For Agent-local authored
+missions, put `use Spectre.Agent` before `use Spectre.Directive`; the latter
+imports the mission DSL and generated convenience functions.
 
 There are two integration modes. Without a Store, `start_directive/2` starts a
 live mission pid; the host answers it with `reply/3` or correlated `respond/3`.
-With a Store, Directive also registers an ordered Spectre turn handler;
+With a Store, the Agent-local `use Spectre.Directive` form also registers an
+ordered Spectre turn handler;
 `start_directive_turn/3` snapshots the mission and later ordinary
 `Spectre.ask/3` calls resume it by conversation id.
 

@@ -7,6 +7,15 @@ and the project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [0.1.3] - 2026-07-29
+
+### Changed
+
+- Made the Spectre turn handler an explicit `turn_handler: true` installation
+  option. Directive's standalone mission engine is no longer inserted into
+  every Stack-bound Agent and never acts as a second `Spectre.Run` executor.
+- Updated the package contract and development dependency to Spectre 0.1.3.
+
 ### Added
 
 - A versioned `Spectre.Stack.Installable` facade with immutable `store`,
@@ -50,5 +59,6 @@ and the project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - GitHub Actions checks for formatting, warning-free compilation, tests and
   coverage, non-strict Credo, and Dialyzer.
 
-[Unreleased]: https://github.com/elchemista/spectre_directive/compare/v0.1.0...HEAD
+[Unreleased]: https://github.com/elchemista/spectre_directive/compare/v0.1.3...HEAD
+[0.1.3]: https://github.com/elchemista/spectre_directive/compare/v0.1.0...v0.1.3
 [0.1.0]: https://github.com/elchemista/spectre_directive/releases/tag/v0.1.0

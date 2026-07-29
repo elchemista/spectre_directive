@@ -11,11 +11,25 @@ defmodule SpectreDirective.StackInstallableTest.Stack do
 
   use Spectre.Stack, id: :directive_contract_stack
 
-  install Spectre.Directive, checkpoint: :turn_boundary do
+  install Spectre.Directive, checkpoint: :turn_boundary, turn_handler: true do
     store(SpectreDirective.StackInstallableTest.Store)
     clock(SpectreDirective.StackInstallableTest.Clock)
     resident_runs(16)
   end
+end
+
+defmodule SpectreDirective.StackInstallableTest.PassiveStack do
+  @moduledoc false
+
+  use Spectre.Stack, id: :directive_passive_contract_stack
+
+  install(Spectre.Directive)
+end
+
+defmodule SpectreDirective.StackInstallableTest.PassiveAgent do
+  @moduledoc false
+
+  use Spectre.Agent, stack: SpectreDirective.StackInstallableTest.PassiveStack
 end
 
 defmodule SpectreDirective.StackInstallableTest.Agent do
@@ -36,15 +50,16 @@ defmodule SpectreDirective.StackInstallableTest do
   alias Spectre.Stack.Installable
   alias SpectreDirective.StackInstallableTest.Clock
   alias SpectreDirective.StackInstallableTest.Agent
+  alias SpectreDirective.StackInstallableTest.PassiveAgent
   alias SpectreDirective.StackInstallableTest.Stack, as: TestStack
   alias SpectreDirective.StackInstallableTest.Store
 
   test "publishes the versioned Directive Stack contract" do
     assert {:ok, package} = V1.verify_installable(Spectre.Directive)
     assert package.id == :directive
-    assert package.version == "0.1.2"
+    assert package.version == "0.1.3"
     assert package.contract == 1
-    assert package.spectre == "~> 0.1.2"
+    assert package.spectre == "~> 0.1.3"
     assert package.provides == [{:service, :continuity}]
     assert package.operations == []
     assert package.actions == []
@@ -52,6 +67,22 @@ defmodule SpectreDirective.StackInstallableTest do
     assert package.agent_extensions == [Spectre.Directive.Extension]
     assert package.dsl == Spectre.Directive
     assert is_binary(package.digest)
+  end
+
+  test "keeps the standalone mission engine quarantined unless the handler is opted in" do
+    definition = PassiveAgent.__spectre_definition__()
+
+    assert is_map(definition.config[:directive])
+    refute Keyword.has_key?(definition.config, :turn_handlers)
+  end
+
+  test "rejects ambiguous turn-handler installation values" do
+    assert {:error, {:invalid_turn_handler_option, :automatic}} =
+             Spectre.Directive.StackCompiler.compile(
+               [turn_handler: :automatic],
+               nil,
+               __ENV__
+             )
   end
 
   test "selecting the Stack activates continuity and internal reasoning" do
@@ -89,7 +120,7 @@ defmodule SpectreDirective.StackInstallableTest do
     assert {:ok, installation} = Definition.installation(definition, :directive)
 
     assert installation.config == %{
-             options: [checkpoint: :turn_boundary],
+             options: [checkpoint: :turn_boundary, turn_handler: true],
              store: Store,
              clock: Clock,
              resident_runs: 16
