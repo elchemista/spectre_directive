@@ -24,6 +24,7 @@ defmodule Spectre.Directive do
   See the project README for complete standalone, Agent, and GenServer flows.
   """
 
+  alias Spectre.Directive.StackCompiler
   alias SpectreDirective.Context
   alias SpectreDirective.Loop.Engine
   alias SpectreDirective.Loop.State
@@ -56,7 +57,7 @@ defmodule Spectre.Directive do
 
   @impl Spectre.Stack.Installable
   def compile(opts, block, caller) do
-    Spectre.Directive.StackCompiler.compile(opts, block, caller)
+    StackCompiler.compile(opts, block, caller)
   end
 
   @doc "Imports the Directive DSL and installs the appropriate host integration."
@@ -70,10 +71,10 @@ defmodule Spectre.Directive do
   @doc """
   Returns the immutable Directive installation bound to an Agent.
 
-  Stack-bound Agents receive this configuration automatically through
-  `Spectre.Directive.Extension`. The continuity turn handler is installed only
-  when the package is mounted with `turn_handler: true`; the default
-  installation contributes data and no competing turn executor.
+  Stack-bound Agents receive this configuration automatically from the
+  Directive extension. The continuity turn handler is installed only when the
+  package is mounted with `turn_handler: true`; the default installation
+  contributes data and no competing turn executor.
   """
   @spec config(module()) :: {:ok, map()} | {:error, term()}
   def config(agent) when is_atom(agent) do

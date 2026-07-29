@@ -45,11 +45,15 @@ end
 defmodule SpectreDirective.StackInstallableTest do
   use ExUnit.Case, async: true
 
+  alias Spectre.Directive.StackCompiler
   alias Spectre.Stack.Contract.V1
   alias Spectre.Stack.Definition
   alias Spectre.Stack.Installable
-  alias SpectreDirective.StackInstallableTest.Clock
+  alias SpectreDirective.AgentDecision
+  alias SpectreDirective.Context
+  alias SpectreDirective.Integration.SpectreAgent
   alias SpectreDirective.StackInstallableTest.Agent
+  alias SpectreDirective.StackInstallableTest.Clock
   alias SpectreDirective.StackInstallableTest.PassiveAgent
   alias SpectreDirective.StackInstallableTest.Stack, as: TestStack
   alias SpectreDirective.StackInstallableTest.Store
@@ -78,7 +82,7 @@ defmodule SpectreDirective.StackInstallableTest do
 
   test "rejects ambiguous turn-handler installation values" do
     assert {:error, {:invalid_turn_handler_option, :automatic}} =
-             Spectre.Directive.StackCompiler.compile(
+             StackCompiler.compile(
                [turn_handler: :automatic],
                nil,
                __ENV__
@@ -102,13 +106,13 @@ defmodule SpectreDirective.StackInstallableTest do
     assert handler_opts[:clock] == Clock
     assert handler_opts[:resident_runs] == 16
 
-    context = %SpectreDirective.Context{operation: :plan}
+    context = %Context{operation: :plan}
 
-    assert %SpectreDirective.AgentDecision{
+    assert %AgentDecision{
              kind: :blocked,
              reason: :stack_reasoned
            } =
-             SpectreDirective.Integration.SpectreAgent.decide(context,
+             SpectreAgent.decide(context,
                agent: Agent,
                owner: Agent
              )
