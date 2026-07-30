@@ -83,7 +83,7 @@ The Spectre dependency supplies the immutable Stack contract. Directive's
 pure reducer, GenServer integration, and optional runtime remain usable
 without mounting a Stack.
 
-Version 0.1.4 exposes its continuity configuration through the package-local
+Version 0.1.5 exposes its continuity configuration through the package-local
 Stack DSL:
 
 ```elixir
@@ -122,7 +122,7 @@ Directive runtime, stores, timers, or globally named processes.
 
 ### Agent Instance boundary
 
-Spectre 0.1.4 owns subject continuity through one `Spectre.Instance` addressed
+Spectre 0.1.5 owns subject continuity through one `Spectre.Instance` addressed
 by `AgentRef + Subject`. Every input creates a core-owned `Spectre.Run`; the
 Instance schedules multiple Runs and retains the Agent State:
 
@@ -139,7 +139,7 @@ own the ready queue or Invocation registry, or mutate Agent State outside the
 core Run transition. Its standalone mission runtime and Store snapshots remain
 explicit, package-local facilities in this release. Core Run persistence,
 passivation, recovery, timers, leases, and outbox integration belong to the
-later continuity-plane phase and are not implemented by 0.1.4.
+later continuity-plane phase and are not implemented by 0.1.5.
 
 For a complete first walkthrough, read [Getting started](docs/GETTING_STARTED.md).
 The repository also contains examples that run without an LLM or external
