@@ -11,10 +11,11 @@ Spectre turn ──► route, policy, Agent state
         └──────► Directive mission, living plan, questions, outcome
 ```
 
-Spectre owns one Agent turn, its policy gates, routing, and effects. Directive
-owns the longer mission, its versioned plan, accumulated information, pending
+Spectre owns the subject-scoped Agent Instance, its Agent State, ready queue,
+Runs, policy gates, routing, Invocations, and effects. Directive owns only its
+package-local mission, versioned plan, accumulated information, pending
 request, and terminal outcome. Directive reasoning may use the same Agent
-without making Spectre depend on Directive.
+without making Spectre depend on Directive or creating a second Run scheduler.
 
 There are two valid conversation modes:
 
@@ -172,9 +173,32 @@ different input returns `{:error, {:directive_turn_id_reused, turn_id}}`.
 Spectre generates a turn id when it is omitted, which is suitable for a single
 local call but cannot identify a later transport retry.
 
-For active conversations, a `Spectre.Session` is recommended because it also
-serializes Spectre turns in one process. Stateless module calls remain valid,
-but the Store must reject concurrent stale snapshots, especially across nodes.
+For subject continuity in 0.1.4, use the unique `Spectre.Instance` for the
+Agent and Subject. It serializes Agent State transitions while fairly
+scheduling multiple core Runs:
+
+```elixir
+{:ok, instance} =
+  Spectre.instance(MyApp.SpectreSupervisor, MyApp.ProfileAgent, account_id)
+
+{:ok, result} =
+  Spectre.ask(instance, "start profile",
+    conversation_id: "profile-42",
+    turn_id: "message-1"
+  )
+```
+
+The subject identifies the Instance; `conversation_id` remains Directive's
+explicit persisted-mission key in this release. Directive neither resolves
+external identities nor links Subjects. Stateless module calls and the legacy
+`Spectre.Session` compatibility path remain valid, but the Store must reject
+concurrent stale snapshots, especially across nodes.
+
+The 0.1.4 integration deliberately stops at the Agent Instance boundary.
+Directive does not persist or passivate core Runs, own their ready queue or
+Invocation registry, or implement recovery, leases, timers, Ledger, Outbox, or
+Delivery Receipts for them. Those are continuity-plane capabilities planned
+for a later phase.
 
 An already-open Spectre policy always runs before Directive. The first
 configured handler that claims a normal turn wins. Directive reasoning uses

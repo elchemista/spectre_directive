@@ -7,6 +7,26 @@ and the project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [0.1.4] - 2026-07-30
+
+### Changed
+
+- Updated the package, development source, and Stack compatibility contract
+  for Spectre 0.1.4.
+- Documented `Spectre.Instance` as the core owner of subject-scoped Agent
+  State, multi-Run scheduling, and in-flight Invocations.
+
+### Added
+
+- Agent Instance conformance coverage proving that passive Directive
+  installations can participate in multiple core Runs without starting a
+  second scheduler or placing Directive runtime data in Agent State.
+
+### Not included
+
+- Core Run persistence, passivation, recovery, timers, leases, Ledger, Outbox,
+  and Delivery Receipts remain part of the later continuity-plane phase.
+
 ## [0.1.3] - 2026-07-29
 
 ### Changed
@@ -59,6 +79,7 @@ and the project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - GitHub Actions checks for formatting, warning-free compilation, tests and
   coverage, non-strict Credo, and Dialyzer.
 
-[Unreleased]: https://github.com/elchemista/spectre_directive/compare/v0.1.3...HEAD
+[Unreleased]: https://github.com/elchemista/spectre_directive/compare/v0.1.4...HEAD
+[0.1.4]: https://github.com/elchemista/spectre_directive/compare/v0.1.3...v0.1.4
 [0.1.3]: https://github.com/elchemista/spectre_directive/compare/v0.1.0...v0.1.3
 [0.1.0]: https://github.com/elchemista/spectre_directive/releases/tag/v0.1.0

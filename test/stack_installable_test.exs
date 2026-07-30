@@ -61,9 +61,9 @@ defmodule SpectreDirective.StackInstallableTest do
   test "publishes the versioned Directive Stack contract" do
     assert {:ok, package} = V1.verify_installable(Spectre.Directive)
     assert package.id == :directive
-    assert package.version == "0.1.3"
+    assert package.version == "0.1.4"
     assert package.contract == 1
-    assert package.spectre == "~> 0.1.3"
+    assert package.spectre == "~> 0.1.4"
     assert package.provides == [{:service, :continuity}]
     assert package.operations == []
     assert package.actions == []

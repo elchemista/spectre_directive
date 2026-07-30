@@ -38,9 +38,9 @@ defmodule Spectre.Directive do
 
   use Spectre.Stack.Installable,
     id: :directive,
-    version: "0.1.3",
+    version: "0.1.4",
     contract: 1,
-    spectre: "~> 0.1.3",
+    spectre: "~> 0.1.4",
     provides: [{:service, :continuity}],
     requires: [],
     conflicts: [],
