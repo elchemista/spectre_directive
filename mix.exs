@@ -1,7 +1,7 @@
 defmodule SpectreDirective.MixProject do
   use Mix.Project
 
-  @version "0.1.3"
+  @version "0.1.4"
   @source_url "https://github.com/elchemista/spectre_directive"
 
   def project do
@@ -139,8 +139,11 @@ defmodule SpectreDirective.MixProject do
 
   defp spectre_dep do
     case System.get_env("SPECTRE_PATH") do
-      path when is_binary(path) and path != "" -> {:spectre, path: Path.expand(path)}
-      _other -> {:spectre, github: "elchemista/spectre", branch: "feature/v0.1.3-run"}
+      path when is_binary(path) and path != "" ->
+        {:spectre, "~> 0.1.4", path: Path.expand(path)}
+
+      _other ->
+        {:spectre, "~> 0.1.4", github: "elchemista/spectre", branch: "main"}
     end
   end
 end
