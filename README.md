@@ -22,6 +22,19 @@ documented, while minor releases may still refine public APIs from user
 feedback. See the [changelog](CHANGELOG.md) for what ships and the
 [roadmap](ROADMAP.md) for likely next steps.
 
+The exact `0.1.6` compatibility surface is published in the
+[public API manifest](docs/PUBLIC_API.md).
+
+## 0.1.6 Recoverable Baseline
+
+Version `0.1.6` is a consolidation-only release with no new runtime feature and
+no intentional breaking change. Elixir 1.19 on Erlang/OTP 28 is the initially
+guaranteed pair. Uniform CI runs format, warnings-as-errors compilation, tests,
+non-strict Credo, Dialyzer, ExDoc, and local package validation with no
+publication. The permanent
+Directive snapshot fixture under `test/fixtures/compatibility/0.1.6` freezes
+the trusted recovery shape used before the `0.2.0` runtime changes.
+
 ## The contract
 
 ```text
@@ -83,7 +96,7 @@ The Spectre dependency supplies the immutable Stack contract. Directive's
 pure reducer, GenServer integration, and optional runtime remain usable
 without mounting a Stack.
 
-Version 0.1.5 exposes its continuity configuration through the package-local
+Version 0.1.6 exposes its continuity configuration through the package-local
 Stack DSL:
 
 ```elixir
@@ -122,7 +135,7 @@ Directive runtime, stores, timers, or globally named processes.
 
 ### Agent Instance boundary
 
-Spectre 0.1.5 owns subject continuity through one `Spectre.Instance` addressed
+Spectre 0.1.6 owns subject continuity through one `Spectre.Instance` addressed
 by `AgentRef + Subject`. Every input creates a core-owned `Spectre.Run`; the
 Instance schedules multiple Runs and retains the Agent State:
 
@@ -139,7 +152,7 @@ own the ready queue or Invocation registry, or mutate Agent State outside the
 core Run transition. Its standalone mission runtime and Store snapshots remain
 explicit, package-local facilities in this release. Core Run persistence,
 passivation, recovery, timers, leases, and outbox integration belong to the
-later continuity-plane phase and are not implemented by 0.1.5.
+later continuity-plane phase and are not implemented by 0.1.6.
 
 For a complete first walkthrough, read [Getting started](docs/GETTING_STARTED.md).
 The repository also contains examples that run without an LLM or external
@@ -696,8 +709,8 @@ mix compile --warnings-as-errors
 mix test --cover
 mix credo
 mix dialyzer
-mix docs --warnings-as-errors
-mix hex.publish --dry-run
+mix docs
+SPECTRE_HEX_BUILD=1 mix hex.build --unpack --output /tmp/spectre-directive-package
 ```
 
 Credo intentionally runs without `--strict`. See [CONTRIBUTING.md](CONTRIBUTING.md)
