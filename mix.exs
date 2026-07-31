@@ -1,7 +1,7 @@
 defmodule SpectreDirective.MixProject do
   use Mix.Project
 
-  @version "0.1.5"
+  @version "0.1.6"
   @source_url "https://github.com/elchemista/spectre_directive"
 
   def project do
@@ -51,6 +51,7 @@ defmodule SpectreDirective.MixProject do
       source_ref: "v#{@version}",
       extras: [
         "README.md",
+        "docs/PUBLIC_API.md",
         "docs/GETTING_STARTED.md",
         "docs/SPECTRE_AGENT_INTEGRATION.md",
         "examples/EXAMPLES.md",
@@ -64,6 +65,7 @@ defmodule SpectreDirective.MixProject do
       groups_for_extras: [
         "Start here": [
           "README.md",
+          "docs/PUBLIC_API.md",
           "docs/GETTING_STARTED.md",
           "docs/SPECTRE_AGENT_INTEGRATION.md",
           "examples/EXAMPLES.md"
@@ -138,8 +140,11 @@ defmodule SpectreDirective.MixProject do
   end
 
   defp spectre_dep do
-    case System.get_env("SPECTRE_PATH") do
-      path when is_binary(path) and path != "" ->
+    case {System.get_env("SPECTRE_HEX_BUILD"), System.get_env("SPECTRE_PATH")} do
+      {hex_build, _path} when hex_build in ["1", "true"] ->
+        {:spectre, "~> 0.1.5"}
+
+      {_hex_build, path} when is_binary(path) and path != "" ->
         {:spectre, "~> 0.1.5", path: Path.expand(path)}
 
       _other ->
