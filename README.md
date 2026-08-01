@@ -22,8 +22,15 @@ documented, while minor releases may still refine public APIs from user
 feedback. See the [changelog](CHANGELOG.md) for what ships and the
 [roadmap](ROADMAP.md) for likely next steps.
 
-The exact `0.1.6` compatibility surface is published in the
+The exact `0.2.0` compatibility surface is published in the
 [public API manifest](docs/PUBLIC_API.md).
+
+## 0.2.0 Spectre Compatibility
+
+Version `0.2.0` aligns Directive's package and Stack contracts with Spectre
+`~> 0.2.0`. The pure mission reducer and optional runtime remain independent;
+the Agent integration stays a passive, opt-in turn handler while the core owns
+Runs, Instances, Effects, Work, and Vigil.
 
 ## 0.1.6 Recoverable Baseline
 
@@ -96,7 +103,7 @@ The Spectre dependency supplies the immutable Stack contract. Directive's
 pure reducer, GenServer integration, and optional runtime remain usable
 without mounting a Stack.
 
-Version 0.1.6 exposes its continuity configuration through the package-local
+Version 0.2.0 exposes its continuity configuration through the package-local
 Stack DSL:
 
 ```elixir
@@ -135,7 +142,7 @@ Directive runtime, stores, timers, or globally named processes.
 
 ### Agent Instance boundary
 
-Spectre 0.1.6 owns subject continuity through one `Spectre.Instance` addressed
+Spectre 0.2.0 owns subject continuity through one `Spectre.Instance` addressed
 by `AgentRef + Subject`. Every input creates a core-owned `Spectre.Run`; the
 Instance schedules multiple Runs and retains the Agent State:
 
@@ -152,7 +159,7 @@ own the ready queue or Invocation registry, or mutate Agent State outside the
 core Run transition. Its standalone mission runtime and Store snapshots remain
 explicit, package-local facilities in this release. Core Run persistence,
 passivation, recovery, timers, leases, and outbox integration belong to the
-later continuity-plane phase and are not implemented by 0.1.6.
+separate core facilities and are not duplicated by Directive 0.2.0.
 
 For a complete first walkthrough, read [Getting started](docs/GETTING_STARTED.md).
 The repository also contains examples that run without an LLM or external
