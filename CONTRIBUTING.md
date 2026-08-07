@@ -29,8 +29,10 @@ mix test --cover
 mix credo
 mix dialyzer
 mix docs --warnings-as-errors
-mix hex.publish --dry-run
 ```
+
+Spectre Directive is released through GitHub tags and GitHub Releases only;
+contributors must not prepare or publish a Hex package.
 
 Credo intentionally runs without `--strict`. New code should still resolve any
 normal-priority issue reported by the configured default checks.

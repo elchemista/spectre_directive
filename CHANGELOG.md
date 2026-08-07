@@ -7,6 +7,13 @@ and the project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Changed
+
+- Made distribution GitHub-only by removing Hex package metadata, publishing
+  instructions, and package build CI.
+- Replaced the dynamic Spectre source selector with one direct dependency on
+  the Spectre GitHub `0.2.0` tag.
+
 ## [0.2.0] - 2026-08-01
 
 ### Changed

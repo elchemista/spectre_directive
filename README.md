@@ -37,8 +37,7 @@ Runs, Instances, Effects, Work, and Vigil.
 Version `0.1.6` is a consolidation-only release with no new runtime feature and
 no intentional breaking change. Elixir 1.19 on Erlang/OTP 28 is the initially
 guaranteed pair. Uniform CI runs format, warnings-as-errors compilation, tests,
-non-strict Credo, Dialyzer, ExDoc, and local package validation with no
-publication. The permanent
+non-strict Credo, Dialyzer, and ExDoc. The permanent
 Directive snapshot fixture under `test/fixtures/compatibility/0.1.6` freezes
 the trusted recovery shape used before the `0.2.0` runtime changes.
 
@@ -83,21 +82,13 @@ The host owns:
 ```elixir
 def deps do
   [
-    {:spectre_directive, github: "elchemista/spectre_directive"}
+    {:spectre_directive, github: "elchemista/spectre_directive", tag: "v0.2.0"}
   ]
 end
 ```
 
-For local development with the sibling repositories:
-
-```elixir
-def deps do
-  [
-    {:spectre, path: "../spectre"},
-    {:spectre_directive, path: "../spectre_directive"}
-  ]
-end
-```
+Spectre Directive is distributed exclusively from GitHub; there is no Hex or
+path-based Spectre dependency in its manifest.
 
 The Spectre dependency supplies the immutable Stack contract. Directive's
 pure reducer, GenServer integration, and optional runtime remain usable
@@ -717,7 +708,6 @@ mix test --cover
 mix credo
 mix dialyzer
 mix docs
-SPECTRE_HEX_BUILD=1 mix hex.build --unpack --output /tmp/spectre-directive-package
 ```
 
 Credo intentionally runs without `--strict`. See [CONTRIBUTING.md](CONTRIBUTING.md)
