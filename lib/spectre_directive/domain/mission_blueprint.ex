@@ -111,7 +111,7 @@ defmodule SpectreDirective.MissionBlueprint do
   end
 
   @spec normalize_plan(term(), term(), source()) :: Plan.t()
-  defp normalize_plan(%Plan{} = plan, _steps, _source), do: plan
+  defp normalize_plan(%Plan{} = plan, _steps, _source), do: Plan.new(plan)
   defp normalize_plan(nil, steps, source), do: Plan.new(List.wrap(steps), source: source)
   defp normalize_plan(plan, _steps, _source), do: Plan.new(plan)
 

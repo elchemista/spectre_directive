@@ -451,7 +451,7 @@ defmodule SpectreDirective.Integration.SpectreAgent.Conversation do
   @spec context_option(term(), atom()) :: term()
   defp context_option(context, key) do
     case field(context, :opts, []) do
-      opts when is_list(opts) -> Keyword.get(opts, key)
+      opts when is_list(opts) -> if(Keyword.keyword?(opts), do: Keyword.get(opts, key))
       _opts -> nil
     end
   end

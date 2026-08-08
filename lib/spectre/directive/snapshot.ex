@@ -16,6 +16,7 @@ defmodule Spectre.Directive.Snapshot do
   """
 
   alias SpectreDirective.Loop.State
+  alias SpectreDirective.Plan
 
   @version 1
   @terminal_statuses [:completed, :failed, :cancelled]
@@ -180,7 +181,12 @@ defmodule Spectre.Directive.Snapshot do
     do: {:error, {:snapshot_key_mismatch, expected, actual}}
 
   @spec validate_state(unchecked()) :: :ok | {:error, term()}
-  defp validate_state(%__MODULE__{state: %State{}}), do: :ok
+  defp validate_state(%__MODULE__{state: %State{plan: %Plan{} = plan}}) do
+    case Plan.validate(plan) do
+      :ok -> :ok
+      {:error, reason} -> {:error, {:invalid_snapshot_plan, reason}}
+    end
+  end
 
   defp validate_state(%__MODULE__{state: state}),
     do: {:error, {:invalid_snapshot_state, shape(state)}}

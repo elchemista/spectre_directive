@@ -35,6 +35,8 @@ defmodule SpectreDirective.StoreTest do
   alias Spectre.Directive.Store
   alias SpectreDirective.Loop.Engine
   alias SpectreDirective.Loop.State
+  alias SpectreDirective.Plan
+  alias SpectreDirective.Step
   alias SpectreDirective.StoreTest.Store, as: TestStore
 
   setup do
@@ -139,5 +141,30 @@ defmodule SpectreDirective.StoreTest do
 
     assert {:error, {:invalid_directive_snapshot, :map}} =
              Store.snapshot(target, :key, %{})
+  end
+
+  test "snapshot validation rejects corrupted plan identity and indexes", %{snapshot: snapshot} do
+    [step] = snapshot.state.plan.steps
+    duplicate = %{step | title: "Duplicate"}
+
+    duplicate_plan = %{snapshot.state.plan | steps: [step, duplicate]}
+    duplicate_snapshot = %{snapshot | state: %{snapshot.state | plan: duplicate_plan}}
+
+    assert {:error, {:invalid_snapshot_plan, {:duplicate_plan_step, step_id}}} =
+             Snapshot.validate(duplicate_snapshot)
+
+    assert step_id == step.id
+
+    stale_plan = %{
+      snapshot.state.plan
+      | completed_steps: [Step.new("Ghost", id: "ghost", status: :completed)]
+    }
+
+    stale_snapshot = %{snapshot | state: %{snapshot.state | plan: stale_plan}}
+
+    assert {:error, {:invalid_snapshot_plan, {:stale_plan_index, :completed}}} =
+             Snapshot.validate(stale_snapshot)
+
+    assert :ok = Plan.validate(snapshot.state.plan)
   end
 end

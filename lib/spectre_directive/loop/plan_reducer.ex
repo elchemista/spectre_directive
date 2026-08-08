@@ -4,6 +4,7 @@ defmodule SpectreDirective.Loop.PlanReducer do
   alias SpectreDirective.Loop.State
   alias SpectreDirective.Plan
   alias SpectreDirective.PlanPatch
+  alias SpectreDirective.Step
 
   @type proposal_type :: :plan | :patch
   @type change_result :: {:ok, State.t()} | {:confirm, State.t()} | {:error, term()}
@@ -44,8 +45,11 @@ defmodule SpectreDirective.Loop.PlanReducer do
 
   def apply_change(%State{mode: :guided} = state, _type, _proposal), do: {:confirm, state}
 
-  def apply_change(%State{mode: :autonomous} = state, :plan, %Plan{} = plan),
-    do: apply_plan(state, plan)
+  def apply_change(%State{mode: :autonomous} = state, :plan, %Plan{} = plan) do
+    with {:ok, normalized} <- normalize_proposed(state, plan) do
+      apply_plan(state, normalized)
+    end
+  end
 
   def apply_change(%State{mode: :autonomous} = state, :patch, %PlanPatch{} = patch),
     do: apply_patch(state, patch)
@@ -75,23 +79,44 @@ defmodule SpectreDirective.Loop.PlanReducer do
   @spec normalize_unstarted_plan(term()) :: {:ok, Plan.t()} | {:error, term()}
   defp normalize_unstarted_plan(proposed) do
     with {:ok, plan} <- build_plan(proposed) do
-      steps = Enum.map(plan.steps, &%{&1 | status: :pending, source: :generated})
-      {:ok, %{plan | steps: steps, current_step_id: nil, source: :agent_generated}}
+      steps = Enum.map(plan.steps, &normalize_generated_step/1)
+
+      normalized = %{
+        plan
+        | steps: steps,
+          skipped_steps: [],
+          completed_steps: [],
+          current_step_id: nil,
+          source: :agent_generated
+      }
+
+      with :ok <- Plan.validate(normalized), do: {:ok, normalized}
     end
   end
 
   @spec build_plan(term()) :: {:ok, Plan.t()} | {:error, term()}
-  defp build_plan(%Plan{} = plan), do: {:ok, plan}
+  defp build_plan(%Plan{} = plan), do: new_plan(plan)
   defp build_plan(%{steps: steps}), do: new_plan(steps)
   defp build_plan(%{"steps" => steps}), do: new_plan(steps)
   defp build_plan(steps) when is_list(steps), do: new_plan(steps)
   defp build_plan(other), do: {:error, {:invalid_proposed_plan, other}}
 
   @spec new_plan(term()) :: {:ok, Plan.t()} | {:error, term()}
-  defp new_plan(steps) do
-    {:ok, Plan.new(steps, source: :agent_generated)}
+  defp new_plan(plan_or_steps) do
+    {:ok, Plan.new(plan_or_steps, source: :agent_generated)}
   rescue
     error -> {:error, {:invalid_proposed_plan, error}}
+  end
+
+  @spec normalize_generated_step(Step.t()) :: Step.t()
+  defp normalize_generated_step(%Step{} = step) do
+    Step.new(step,
+      status: :pending,
+      attempts: 0,
+      evidence: [],
+      result: nil,
+      source: :generated
+    )
   end
 
   @spec apply_plan(State.t(), Plan.t()) :: {:ok, State.t()}

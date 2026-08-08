@@ -7,6 +7,40 @@ and the project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Changed
+
+- Made distribution GitHub-only by removing Hex package metadata, publishing
+  instructions, and package build CI.
+- Replaced the dynamic Spectre source selector with one direct dependency on
+  the Spectre GitHub `0.2.0` tag.
+- Reused Spectre 0.2.0 UUIDv7 identities for durable Directive entities and
+  batched invocation information updates to avoid repeated list traversal.
+
+### Fixed
+
+- Rejected duplicate step identifiers, dangling current-step pointers, stale
+  plan indexes, and corrupted persisted plans before they can make patch
+  application ambiguous.
+- Reset execution artifacts on generated plans and patches, kept plan indexes
+  coherent after removal, and evaluated removal predicates only once per step.
+- Returned stable errors for malformed create/information options and rejected
+  non-keyword reasoner, invocation, policy, and request-handler options before
+  dispatch.
+
+## [0.2.0] - 2026-08-01
+
+### Changed
+
+- Raised the package and Stack compatibility contracts to Spectre 0.2.0.
+- Verified the pure loop, optional runtime, persisted turn handler, and
+  Instance integration against the Spectre 0.2.0 operational runtime.
+
+### Compatibility
+
+- Kept the 0.1.6 Directive snapshot fixture as a permanent recovery contract.
+- Directive remains a passive package boundary and does not duplicate core
+  Work, Vigil, Run, or Instance ownership.
+
 ## [0.1.6] - 2026-07-31
 
 ### Changed
@@ -96,7 +130,8 @@ and the project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - GitHub Actions checks for formatting, warning-free compilation, tests and
   coverage, non-strict Credo, and Dialyzer.
 
-[Unreleased]: https://github.com/elchemista/spectre_directive/compare/v0.1.6...HEAD
+[Unreleased]: https://github.com/elchemista/spectre_directive/compare/v0.2.0...HEAD
+[0.2.0]: https://github.com/elchemista/spectre_directive/compare/v0.1.6...v0.2.0
 [0.1.6]: https://github.com/elchemista/spectre_directive/compare/v0.1.5...v0.1.6
 [0.1.5]: https://github.com/elchemista/spectre_directive/compare/v0.1.4...v0.1.5
 [0.1.4]: https://github.com/elchemista/spectre_directive/compare/v0.1.3...v0.1.4

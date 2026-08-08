@@ -386,6 +386,10 @@ defmodule SpectreDirective.PureEngineTest do
       {:ok, loop} = Engine.new(mission: "Validation", steps: [%{title: "One"}])
 
       assert {:error, {:invalid_information_options, :bad}} = Engine.inform(loop, :fact, :bad)
+
+      assert {:error, {:invalid_information_options, [:not_a_keyword]}} =
+               Engine.inform(loop, :fact, [:not_a_keyword])
+
       assert {:error, {:invalid_assigns, :bad}} = Engine.assign(loop, :bad)
 
       cancelled = Engine.cancel(loop, :stop)
@@ -437,6 +441,25 @@ defmodule SpectreDirective.PureEngineTest do
 
       assert {:ok, %Plan{}} = PlanReducer.normalize_proposed(state, %{steps: [%{title: "A"}]})
       assert {:ok, %Plan{}} = PlanReducer.normalize_proposed(state, Plan.new([%{title: "A"}]))
+
+      previously_executed =
+        Step.new("Executed",
+          status: :completed,
+          attempts: 3,
+          evidence: [:old],
+          result: :old
+        )
+
+      assert {:ok, normalized} =
+               PlanReducer.normalize_proposed(state, Plan.new([previously_executed]))
+
+      assert [generated] = normalized.steps
+      assert generated.status == :pending
+      assert generated.attempts == 0
+      assert generated.evidence == []
+      assert generated.result == nil
+      assert generated.source == :generated
+      assert normalized.completed_steps == []
 
       assert {:error, {:invalid_proposed_plan, :bad}} =
                PlanReducer.normalize_proposed(state, :bad)

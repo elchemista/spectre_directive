@@ -1,6 +1,7 @@
 # Releasing
 
-This checklist is for maintainers preparing a Hex and GitHub release.
+This checklist is for maintainers preparing a GitHub-only release. Spectre
+Directive is not published to Hex.
 
 ## Prepare the release
 
@@ -19,35 +20,23 @@ This checklist is for maintainers preparing a Hex and GitHub release.
    mix credo
    mix dialyzer
    mix docs --warnings-as-errors
-   mix hex.publish --dry-run
    ```
 
-5. Inspect the exact archive contents if package metadata changed:
+5. Merge the release changes and wait for all GitHub Actions checks on `main`.
 
-   ```bash
-   mix hex.build --unpack
-   ```
-
-6. Merge the release changes and wait for all GitHub Actions checks on `main`.
-
-## Publish
+## Publish on GitHub
 
 Create and push an annotated tag matching the Mix version:
 
 ```bash
-git tag -a v0.1.0 -m "Release 0.1.0"
-git push origin v0.1.0
+git tag -a v0.2.0 -m "Release 0.2.0"
+git push origin v0.2.0
 ```
 
-Publish the package and generated documentation from that exact tag:
-
-```bash
-mix hex.publish
-```
-
-Finally, create a GitHub release for the tag using the matching changelog
-section as its notes. Verify the package page, HexDocs landing page, source
-links, and installation command.
+Create a GitHub Release for that tag using the matching changelog section as
+its notes. Verify the source archive, repository documentation, and the
+GitHub-tag installation command. Do not run `mix hex.build` or
+`mix hex.publish`.
 
 Publishing, pushing tags, and creating the GitHub release are intentionally
 manual actions because they change external state and cannot be fully undone.

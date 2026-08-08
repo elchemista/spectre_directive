@@ -1,7 +1,7 @@
 defmodule SpectreDirective.MixProject do
   use Mix.Project
 
-  @version "0.1.6"
+  @version "0.2.0"
   @source_url "https://github.com/elchemista/spectre_directive"
 
   def project do
@@ -13,7 +13,6 @@ defmodule SpectreDirective.MixProject do
       start_permanent: Mix.env() == :prod,
       deps: deps(),
       description: description(),
-      package: package(),
       test_coverage: [summary: [threshold: 90]],
       dialyzer: [
         plt_add_apps: [:mix]
@@ -32,17 +31,6 @@ defmodule SpectreDirective.MixProject do
 
   defp description do
     "An embeddable, self-correcting mission and plan loop for Elixir agents"
-  end
-
-  defp package do
-    [
-      name: "spectre_directive",
-      maintainers: ["elchemista"],
-      files:
-        ~w(lib examples docs mix.exs README.md CHANGELOG.md ROADMAP.md CONTRIBUTING.md SECURITY.md RELEASING.md LICENSE),
-      licenses: ["Apache-2.0"],
-      links: %{"GitHub" => @source_url}
-    ]
   end
 
   defp docs do
@@ -135,20 +123,7 @@ defmodule SpectreDirective.MixProject do
       {:credo, "~> 1.7", only: [:dev, :test], runtime: false},
       {:dialyxir, "~> 1.4", only: [:dev], runtime: false},
       {:ex_doc, "~> 0.38", only: :dev, runtime: false},
-      spectre_dep()
+      {:spectre, github: "elchemista/spectre", tag: "0.2.0"}
     ]
-  end
-
-  defp spectre_dep do
-    case {System.get_env("SPECTRE_HEX_BUILD"), System.get_env("SPECTRE_PATH")} do
-      {hex_build, _path} when hex_build in ["1", "true"] ->
-        {:spectre, "~> 0.1.5"}
-
-      {_hex_build, path} when is_binary(path) and path != "" ->
-        {:spectre, "~> 0.1.5", path: Path.expand(path)}
-
-      _other ->
-        {:spectre, "~> 0.1.5", github: "elchemista/spectre", branch: "main"}
-    end
   end
 end
