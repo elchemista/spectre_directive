@@ -21,19 +21,32 @@ defmodule SpectreDirective.Policy do
   @spec call(target(), term(), Context.t(), keyword()) :: term()
   def call(target, requirement, context, opts \\ [])
 
-  def call(function, requirement, context, _opts) when is_function(function, 2),
+  def call(target, requirement, %Context{} = context, opts) when is_list(opts) do
+    if Keyword.keyword?(opts),
+      do: dispatch(target, requirement, context, opts),
+      else: {:error, {:invalid_policy_options, opts}}
+  end
+
+  def call(_target, _requirement, %Context{}, opts),
+    do: {:error, {:invalid_policy_options, opts}}
+
+  @spec dispatch(target(), term(), Context.t(), keyword()) :: term()
+  defp dispatch(function, requirement, context, _opts) when is_function(function, 2),
     do: function.(requirement, context)
 
-  def call(function, requirement, context, opts) when is_function(function, 3),
+  defp dispatch(function, requirement, context, opts) when is_function(function, 3),
     do: function.(requirement, context, opts)
 
-  def call({module, adapter_opts}, requirement, context, opts)
-      when is_atom(module) and is_list(adapter_opts),
-      do: module.authorize(requirement, context, Keyword.merge(adapter_opts, opts))
+  defp dispatch({module, adapter_opts} = target, requirement, context, opts)
+       when is_atom(module) and is_list(adapter_opts) do
+    if Keyword.keyword?(adapter_opts),
+      do: module.authorize(requirement, context, Keyword.merge(adapter_opts, opts)),
+      else: {:error, {:invalid_policy_handler, target}}
+  end
 
-  def call(module, requirement, context, opts) when is_atom(module),
+  defp dispatch(module, requirement, context, opts) when is_atom(module),
     do: module.authorize(requirement, context, opts)
 
-  def call(target, _requirement, _context, _opts),
+  defp dispatch(target, _requirement, _context, _opts),
     do: {:error, {:invalid_policy_handler, target}}
 end

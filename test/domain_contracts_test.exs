@@ -229,6 +229,73 @@ defmodule SpectreDirective.DomainContractsTest do
       assert mapped.version == 3
       assert mapped.source == :hybrid
       assert Plan.current_step(mapped).title == "Mapped"
+      assert Enum.map(mapped.skipped_steps, & &1.title) == ["Skipped"]
+      assert Enum.map(mapped.completed_steps, & &1.title) == ["Completed"]
+    end
+
+    test "rejects ambiguous plans and dangling current-step references" do
+      assert_raise ArgumentError, ~r/duplicate_plan_step/, fn ->
+        Plan.new([
+          %{id: "duplicate", title: "First"},
+          %{id: "duplicate", title: "Second"}
+        ])
+      end
+
+      assert_raise ArgumentError, ~r/unknown_current_plan_step/, fn ->
+        Plan.new(%{steps: [%{id: "present", title: "Present"}], current_step_id: "missing"})
+      end
+
+      plan = Plan.new([%Step{id: nil, title: "Rehydrated"}])
+      assert [step] = plan.steps
+      assert is_binary(step.id)
+
+      stale = %{step | title: "Stale caller copy"}
+      selected = Plan.put_current(plan, stale)
+      assert Plan.current_step(selected).title == "Rehydrated"
+
+      assert_raise ArgumentError, ~r/does not belong to plan/, fn ->
+        Plan.put_current(plan, Step.new("Foreign", id: "foreign"))
+      end
+
+      assert_raise ArgumentError, ~r/does not belong to plan/, fn ->
+        Plan.update_step(plan, Step.new("Foreign", id: "foreign"))
+      end
+
+      assert_raise ArgumentError, ~r/invalid_plan_version/, fn ->
+        Plan.new(%{version: 0, steps: []})
+      end
+
+      assert_raise ArgumentError, ~r/invalid_plan_step_status/, fn ->
+        Plan.new([Step.new("Invalid", status: :unknown)])
+      end
+
+      assert_raise ArgumentError, ~r/invalid_plan_step_attempts/, fn ->
+        Plan.new([Step.new("Invalid", attempts: -1)])
+      end
+    end
+
+    test "removes each step with one predicate call and refreshes derived indexes" do
+      running = Step.new("Running", id: "running")
+      completed = Step.new("Completed", id: "completed", status: :completed)
+      pending = Step.new("Pending", id: "pending")
+      plan = Plan.new([running, completed, pending]) |> Plan.put_current(running)
+      counter = :counters.new(1, [])
+
+      changed =
+        Plan.remove_matching(
+          plan,
+          fn step ->
+            :counters.add(counter, 1, 1)
+            step.id in ["running", "completed"]
+          end,
+          "Remove obsolete steps"
+        )
+
+      assert :counters.get(counter, 1) == 3
+      assert Enum.map(changed.steps, & &1.id) == ["pending"]
+      assert changed.current_step_id == nil
+      assert changed.completed_steps == []
+      assert changed.skipped_steps == []
     end
   end
 
@@ -278,6 +345,32 @@ defmodule SpectreDirective.DomainContractsTest do
       assert Enum.find(changed.steps, &(&1.id == "first")).status == :skipped
       assert Enum.find(changed.steps, &(&1.id == "inserted")).source == :generated
       assert length(changed.revision_history) == 1
+    end
+
+    test "resets runtime artifacts and rejects duplicate generated IDs atomically", %{plan: plan} do
+      executed =
+        Step.new("Executed",
+          id: "generated",
+          status: :completed,
+          attempts: 4,
+          evidence: [:stale],
+          result: :stale,
+          source: :authored
+        )
+
+      assert {:ok, changed} = PlanPatch.apply(plan, [{:add, executed}])
+      generated = Enum.find(changed.steps, &(&1.id == "generated"))
+      assert generated.status == :pending
+      assert generated.attempts == 0
+      assert generated.evidence == []
+      assert generated.result == nil
+      assert generated.source == :generated
+
+      assert {:error, {:duplicate_plan_step, "first"}} =
+               PlanPatch.apply(plan, [{:add, %{id: "first", title: "Duplicate"}}])
+
+      assert Enum.map(plan.steps, & &1.id) == ["done", "first", "second"]
+      assert plan.version == 1
     end
 
     test "removes and reorders only mutable pending steps", %{plan: plan} do
@@ -522,6 +615,9 @@ defmodule SpectreDirective.DomainContractsTest do
       assert {:error, :mission_goal_required} = State.new(mission: "   ")
       assert {:error, {:invalid_loop_options, :bad}} = State.new(:bad)
       assert {:error, {:invalid_plan, _}} = State.new(mission: "Goal", plan: :bad)
+
+      assert {:error, {:invalid_reasoner_options, [:not_a_keyword]}} =
+               State.new(mission: "Goal", reasoner_opts: [:not_a_keyword])
     end
 
     test "projects a selected step and plan history without executable targets" do
@@ -619,6 +715,10 @@ defmodule SpectreDirective.DomainContractsTest do
       entry = Entry.new(state.mission.id, :created, "Created")
       assert entry.data == nil
       assert String.starts_with?(entry.id, "trace_")
+
+      assert entry.id =~
+               ~r/^trace_[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/
+
       assert %DateTime{} = entry.timestamp
     end
   end

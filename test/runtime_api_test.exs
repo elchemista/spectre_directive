@@ -227,6 +227,12 @@ defmodule SpectreDirective.RuntimeAPITest do
     test "create accepts string aliases and forwards runtime options" do
       assert {:error, :mission_required} = Spectre.Directive.create(%{})
 
+      assert {:error, {:invalid_create_options, [:not_a_keyword]}} =
+               Spectre.Directive.create([:not_a_keyword])
+
+      assert {:error, {:invalid_create_options, :not_options}} =
+               Spectre.Directive.create(:not_options)
+
       assert {:ok, mission} =
                Spectre.Directive.create(%{
                  "objective" => "Created mission",

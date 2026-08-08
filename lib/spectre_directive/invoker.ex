@@ -25,8 +25,12 @@ defmodule SpectreDirective.Invoker do
   def call(function, %Context{} = context) when is_function(function, 1),
     do: function.(context)
 
-  def call({module, opts}, %Context{} = context) when is_atom(module) and is_list(opts),
-    do: module.invoke(context, opts)
+  def call({module, opts} = target, %Context{} = context)
+      when is_atom(module) and is_list(opts) do
+    if Keyword.keyword?(opts),
+      do: module.invoke(context, opts),
+      else: {:error, {:invalid_invocation_target, target}}
+  end
 
   def call({module, function}, %Context{} = context)
       when is_atom(module) and is_atom(function),

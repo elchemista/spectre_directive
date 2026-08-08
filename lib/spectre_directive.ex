@@ -140,9 +140,13 @@ defmodule SpectreDirective do
 
   @doc "Creates and starts a mission from a map or keyword list."
   @spec create(map() | keyword()) :: {:ok, pid()} | {:error, term()}
-  def create(attrs) when is_map(attrs) or is_list(attrs) do
-    attrs = Map.new(attrs)
+  def create(attrs) when is_list(attrs) do
+    if Keyword.keyword?(attrs),
+      do: create(Map.new(attrs)),
+      else: {:error, {:invalid_create_options, attrs}}
+  end
 
+  def create(attrs) when is_map(attrs) do
     case attr(attrs, [:mission, :goal, :objective]) do
       nil ->
         {:error, :mission_required}
@@ -171,7 +175,11 @@ defmodule SpectreDirective do
 
         start_directive(blueprint, runtime_opts(attrs))
     end
+  rescue
+    error -> {:error, {:invalid_create_options, error}}
   end
+
+  def create(attrs), do: {:error, {:invalid_create_options, attrs}}
 
   @doc "Starts an emergent mission from a goal or mission value."
   @spec start_mission(binary() | map() | Mission.t(), keyword()) ::

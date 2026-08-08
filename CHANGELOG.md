@@ -13,6 +13,19 @@ and the project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   instructions, and package build CI.
 - Replaced the dynamic Spectre source selector with one direct dependency on
   the Spectre GitHub `0.2.0` tag.
+- Reused Spectre 0.2.0 UUIDv7 identities for durable Directive entities and
+  batched invocation information updates to avoid repeated list traversal.
+
+### Fixed
+
+- Rejected duplicate step identifiers, dangling current-step pointers, stale
+  plan indexes, and corrupted persisted plans before they can make patch
+  application ambiguous.
+- Reset execution artifacts on generated plans and patches, kept plan indexes
+  coherent after removal, and evaluated removal predicates only once per step.
+- Returned stable errors for malformed create/information options and rejected
+  non-keyword reasoner, invocation, policy, and request-handler options before
+  dispatch.
 
 ## [0.2.0] - 2026-08-01
 

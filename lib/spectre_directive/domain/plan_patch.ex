@@ -79,8 +79,10 @@ defmodule SpectreDirective.PlanPatch do
   def apply(%Plan{} = plan, patch) do
     patch = new(patch)
 
-    with :ok <- validate_version(plan, patch),
-         {:ok, changed} <- Enum.reduce_while(patch.operations, {:ok, plan}, &apply_operation/2) do
+    with :ok <- Plan.validate(plan),
+         :ok <- validate_version(plan, patch),
+         {:ok, changed} <- Enum.reduce_while(patch.operations, {:ok, plan}, &apply_operation/2),
+         :ok <- Plan.validate(changed) do
       revision = %{
         version: plan.version + 1,
         reason: patch.reason,
@@ -214,8 +216,15 @@ defmodule SpectreDirective.PlanPatch do
   defp build_operation(nil, operation), do: operation
 
   @spec normalize_step(Step.t() | map() | keyword()) :: Step.t()
-  defp normalize_step(%Step{} = step), do: %{step | status: :pending}
-  defp normalize_step(step), do: Step.new(step, source: :generated, status: :pending)
+  defp normalize_step(step) do
+    Step.new(step,
+      source: :generated,
+      status: :pending,
+      attempts: 0,
+      evidence: [],
+      result: nil
+    )
+  end
 
   @spec fetch_step(Plan.t(), binary()) :: {:ok, Step.t()} | {:error, term()}
   defp fetch_step(%Plan{} = plan, step_id) do

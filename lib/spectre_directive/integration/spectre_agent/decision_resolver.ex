@@ -46,8 +46,11 @@ defmodule SpectreDirective.Integration.SpectreAgent.DecisionResolver do
   def trusted_invocation(target) when is_function(target, 1), do: {:ok, target}
   def trusted_invocation(target) when is_atom(target) and not is_nil(target), do: {:ok, target}
 
-  def trusted_invocation({module, opts} = target) when is_atom(module) and is_list(opts),
-    do: {:ok, target}
+  def trusted_invocation({module, opts} = target) when is_atom(module) and is_list(opts) do
+    if Keyword.keyword?(opts),
+      do: {:ok, target},
+      else: {:error, {:unresolved_directive_invocation, target}}
+  end
 
   def trusted_invocation({module, function} = target)
       when is_atom(module) and is_atom(function),
@@ -63,20 +66,20 @@ defmodule SpectreDirective.Integration.SpectreAgent.DecisionResolver do
   defp resolve_plan(owner, value, context) do
     with {:ok, plan} <- normalize_plan(value),
          {:ok, steps} <- map_ok(plan.steps, &resolve_step(owner, &1, context)) do
-      {:ok, %{plan | steps: steps}}
+      {:ok, Plan.new(%{plan | steps: steps})}
     end
   end
 
   @spec normalize_plan(term()) :: {:ok, Plan.t()} | {:error, term()}
-  defp normalize_plan(%Plan{} = plan), do: {:ok, plan}
+  defp normalize_plan(%Plan{} = plan), do: new_generated_plan(plan)
   defp normalize_plan(%{steps: steps}), do: new_generated_plan(steps)
   defp normalize_plan(%{"steps" => steps}), do: new_generated_plan(steps)
   defp normalize_plan(steps) when is_list(steps), do: new_generated_plan(steps)
   defp normalize_plan(value), do: {:error, {:invalid_generated_plan, value}}
 
   @spec new_generated_plan(term()) :: {:ok, Plan.t()} | {:error, term()}
-  defp new_generated_plan(steps) do
-    {:ok, Plan.new(steps, source: :agent_generated)}
+  defp new_generated_plan(plan_or_steps) do
+    {:ok, Plan.new(plan_or_steps, source: :agent_generated)}
   rescue
     error -> {:error, {:invalid_generated_plan, error}}
   end

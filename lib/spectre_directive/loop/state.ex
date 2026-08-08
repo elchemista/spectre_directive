@@ -62,7 +62,8 @@ defmodule SpectreDirective.Loop.State do
     attrs = Map.new(attrs)
 
     with {:ok, mission} <- mission(attrs),
-         {:ok, plan} <- plan(attrs) do
+         {:ok, plan} <- plan(attrs),
+         {:ok, reasoner_opts} <- reasoner_opts(attrs) do
       working_context =
         WorkingContext.new(
           input: Map.get(attrs, :input),
@@ -76,7 +77,7 @@ defmodule SpectreDirective.Loop.State do
         working_context: working_context,
         mode: normalize_mode(Map.get(attrs, :mode, :guided)),
         reasoner: Map.get(attrs, :reasoner) || Map.get(attrs, :model),
-        reasoner_opts: List.wrap(Map.get(attrs, :reasoner_opts, [])),
+        reasoner_opts: reasoner_opts,
         on_complete: Map.get(attrs, :on_complete),
         plan_confirmed?: boolean_value(Map.get(attrs, :plan_confirmed?), plan.steps != []),
         max_iterations: positive_integer(Map.get(attrs, :max_iterations, 100), 100),
@@ -154,7 +155,7 @@ defmodule SpectreDirective.Loop.State do
   @spec plan(map()) :: {:ok, Plan.t()} | {:error, term()}
   defp plan(attrs) do
     case Map.fetch(attrs, :plan) do
-      {:ok, %Plan{} = plan} -> {:ok, plan}
+      {:ok, %Plan{} = plan} -> {:ok, Plan.new(plan)}
       {:ok, plan} -> {:ok, Plan.new(plan || [])}
       :error -> plan_from_steps(attrs)
     end
@@ -176,6 +177,22 @@ defmodule SpectreDirective.Loop.State do
 
   @spec generated_plan() :: {:ok, Plan.t()}
   defp generated_plan, do: {:ok, Plan.new([], source: :agent_generated)}
+
+  @spec reasoner_opts(map()) :: {:ok, keyword()} | {:error, term()}
+  defp reasoner_opts(attrs) do
+    case Map.get(attrs, :reasoner_opts, []) do
+      nil -> {:ok, []}
+      opts when is_list(opts) -> validate_reasoner_opts(opts)
+      opts -> {:error, {:invalid_reasoner_options, opts}}
+    end
+  end
+
+  @spec validate_reasoner_opts(list()) :: {:ok, keyword()} | {:error, term()}
+  defp validate_reasoner_opts(opts) do
+    if Keyword.keyword?(opts),
+      do: {:ok, opts},
+      else: {:error, {:invalid_reasoner_options, opts}}
+  end
 
   @spec normalize_mode(term()) :: mode()
   defp normalize_mode(:strict), do: :fixed

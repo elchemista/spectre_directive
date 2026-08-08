@@ -88,23 +88,27 @@ defmodule SpectreDirective.Loop.Engine do
     do: {:error, :mission_terminal}
 
   def inform(%State{} = state, information, opts) when is_list(opts) do
-    working_context =
-      WorkingContext.add(
-        state.working_context,
-        information,
-        Keyword.put_new(opts, :step_id, current_step_id(state))
-      )
+    if Keyword.keyword?(opts) do
+      working_context =
+        WorkingContext.add(
+          state.working_context,
+          information,
+          Keyword.put_new(opts, :step_id, current_step_id(state))
+        )
 
-    state =
-      state
-      |> Map.put(:working_context, working_context)
-      |> State.add_trace(:information, "Added mission information.", %{
-        source: Keyword.get(opts, :source, :application),
-        step_id: current_step_id(state)
-      })
-      |> invalidate_reasoning_request()
+      state =
+        state
+        |> Map.put(:working_context, working_context)
+        |> State.add_trace(:information, "Added mission information.", %{
+          source: Keyword.get(opts, :source, :application),
+          step_id: current_step_id(state)
+        })
+        |> invalidate_reasoning_request()
 
-    {:ok, state}
+      {:ok, state}
+    else
+      {:error, {:invalid_information_options, opts}}
+    end
   end
 
   def inform(%State{}, _information, opts), do: {:error, {:invalid_information_options, opts}}
@@ -431,8 +435,8 @@ defmodule SpectreDirective.Loop.Engine do
   defp apply_invocation(%State{} = state, %Request{} = request, response) do
     with {:ok, result} <- InvocationResult.normalize(response) do
       state =
-        result.information
-        |> Enum.reduce(state, &add_information(&2, &1, request, :invocation))
+        state
+        |> add_information_many(result.information, request, :invocation)
         |> increment_step_attempt()
         |> State.add_trace(:invocation_result, "Received invocation result.", %{
           request_id: request.id,
@@ -555,6 +559,20 @@ defmodule SpectreDirective.Loop.Engine do
         source: {source, request.id},
         step_id: request.step_id,
         last_result: information
+      )
+
+    %{state | working_context: working_context}
+  end
+
+  @spec add_information_many(State.t(), [term()], Request.t(), term()) :: State.t()
+  defp add_information_many(%State{} = state, [], %Request{}, _source), do: state
+
+  defp add_information_many(%State{} = state, information, %Request{} = request, source) do
+    working_context =
+      WorkingContext.add_many(state.working_context, information,
+        source: {source, request.id},
+        step_id: request.step_id,
+        last_result: List.last(information)
       )
 
     %{state | working_context: working_context}

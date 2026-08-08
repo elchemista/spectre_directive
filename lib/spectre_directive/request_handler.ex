@@ -15,14 +15,28 @@ defmodule SpectreDirective.RequestHandler do
   @spec call(target(), Request.t(), keyword()) :: term()
   def call(target, request, opts \\ [])
 
-  def call(function, request, _opts) when is_function(function, 1), do: function.(request)
+  def call(target, %Request{} = request, opts) when is_list(opts) do
+    if Keyword.keyword?(opts),
+      do: dispatch(target, request, opts),
+      else: {:error, {:invalid_request_handler_options, opts}}
+  end
 
-  def call({module, adapter_opts}, request, opts)
-      when is_atom(module) and is_list(adapter_opts),
-      do: module.handle_request(request, Keyword.merge(adapter_opts, opts))
+  def call(_target, %Request{}, opts),
+    do: {:error, {:invalid_request_handler_options, opts}}
 
-  def call(module, request, opts) when is_atom(module),
+  @spec dispatch(target(), Request.t(), keyword()) :: term()
+  defp dispatch(function, request, _opts) when is_function(function, 1),
+    do: function.(request)
+
+  defp dispatch({module, adapter_opts} = target, request, opts)
+       when is_atom(module) and is_list(adapter_opts) do
+    if Keyword.keyword?(adapter_opts),
+      do: module.handle_request(request, Keyword.merge(adapter_opts, opts)),
+      else: {:error, {:invalid_request_handler, target}}
+  end
+
+  defp dispatch(module, request, opts) when is_atom(module),
     do: module.handle_request(request, opts)
 
-  def call(target, _request, _opts), do: {:error, {:invalid_request_handler, target}}
+  defp dispatch(target, _request, _opts), do: {:error, {:invalid_request_handler, target}}
 end

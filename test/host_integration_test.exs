@@ -453,6 +453,9 @@ defmodule SpectreDirective.HostIntegrationTest do
       assert DecisionResolver.trusted_invocation({String, :replace, ["a", "b"]}) ==
                {:ok, {String, :replace, ["a", "b"]}}
 
+      assert DecisionResolver.trusted_invocation({String, [:not_a_keyword]}) ==
+               {:error, {:unresolved_directive_invocation, {String, [:not_a_keyword]}}}
+
       assert DecisionResolver.trusted_invocation(nil) ==
                {:error, {:unresolved_directive_invocation, nil}}
 
@@ -523,6 +526,7 @@ defmodule SpectreDirective.HostIntegrationTest do
                  DecisionResolver.resolve(SpectreDirective.ResolverHost, decision, context)
 
         assert %Plan{} = resolved.plan
+        assert :ok = Plan.validate(resolved.plan)
         assert hd(resolved.plan.steps).invoke != nil
       end)
 

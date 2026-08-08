@@ -21,18 +21,30 @@ defmodule SpectreDirective.Reasoner do
   @spec call(target(), Context.t(), keyword()) :: term()
   def call(target, context, opts \\ [])
 
-  def call(function, %Context{} = context, _opts) when is_function(function, 1),
+  def call(target, %Context{} = context, opts) when is_list(opts) do
+    if Keyword.keyword?(opts),
+      do: dispatch(target, context, opts),
+      else: {:error, {:invalid_reasoner_options, opts}}
+  end
+
+  def call(_target, %Context{}, opts), do: {:error, {:invalid_reasoner_options, opts}}
+
+  @spec dispatch(target(), Context.t(), keyword()) :: term()
+  defp dispatch(function, %Context{} = context, _opts) when is_function(function, 1),
     do: function.(context)
 
-  def call(function, %Context{} = context, opts) when is_function(function, 2),
+  defp dispatch(function, %Context{} = context, opts) when is_function(function, 2),
     do: function.(context, opts)
 
-  def call({module, adapter_opts}, %Context{} = context, opts)
-      when is_atom(module) and is_list(adapter_opts),
-      do: module.decide(context, Keyword.merge(adapter_opts, opts))
+  defp dispatch({module, adapter_opts} = target, %Context{} = context, opts)
+       when is_atom(module) and is_list(adapter_opts) do
+    if Keyword.keyword?(adapter_opts),
+      do: module.decide(context, Keyword.merge(adapter_opts, opts)),
+      else: {:error, {:invalid_reasoner, target}}
+  end
 
-  def call(module, %Context{} = context, opts) when is_atom(module),
+  defp dispatch(module, %Context{} = context, opts) when is_atom(module),
     do: module.decide(context, opts)
 
-  def call(target, %Context{}, _opts), do: {:error, {:invalid_reasoner, target}}
+  defp dispatch(target, %Context{}, _opts), do: {:error, {:invalid_reasoner, target}}
 end

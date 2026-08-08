@@ -212,6 +212,12 @@ defmodule SpectreDirective.DSLAndAdaptersTest do
 
       assert SpectreDirective.Reasoner.call("bad target", context) ==
                {:error, {:invalid_reasoner, "bad target"}}
+
+      assert SpectreDirective.Reasoner.call({TestAdapter, [:not_a_keyword]}, context) ==
+               {:error, {:invalid_reasoner, {TestAdapter, [:not_a_keyword]}}}
+
+      assert SpectreDirective.Reasoner.call(TestAdapter, context, [:not_a_keyword]) ==
+               {:error, {:invalid_reasoner_options, [:not_a_keyword]}}
     end
   end
 
@@ -231,6 +237,9 @@ defmodule SpectreDirective.DSLAndAdaptersTest do
 
       assert SpectreDirective.Invoker.call({TestAdapter, :mfa, [:extra]}, context) ==
                {:mfa, :step, :extra}
+
+      assert SpectreDirective.Invoker.call({TestAdapter, [:not_a_keyword]}, context) ==
+               {:error, {:invalid_invocation_target, {TestAdapter, [:not_a_keyword]}}}
 
       assert SpectreDirective.Invoker.call("not executable", context) ==
                {:error, {:invalid_invocation_target, "not executable"}}
@@ -258,6 +267,12 @@ defmodule SpectreDirective.DSLAndAdaptersTest do
 
       assert SpectreDirective.Policy.call("missing policy", :read, context) ==
                {:error, {:invalid_policy_handler, "missing policy"}}
+
+      assert SpectreDirective.Policy.call({TestAdapter, [:not_a_keyword]}, :read, context) ==
+               {:error, {:invalid_policy_handler, {TestAdapter, [:not_a_keyword]}}}
+
+      assert SpectreDirective.Policy.call(TestAdapter, :read, context, [:not_a_keyword]) ==
+               {:error, {:invalid_policy_options, [:not_a_keyword]}}
     end
 
     test "dispatches every generic request handler shape", %{request: request} do
@@ -272,6 +287,12 @@ defmodule SpectreDirective.DSLAndAdaptersTest do
 
       assert SpectreDirective.RequestHandler.call("invalid", request) ==
                {:error, {:invalid_request_handler, "invalid"}}
+
+      assert SpectreDirective.RequestHandler.call({TestAdapter, [:not_a_keyword]}, request) ==
+               {:error, {:invalid_request_handler, {TestAdapter, [:not_a_keyword]}}}
+
+      assert SpectreDirective.RequestHandler.call(TestAdapter, request, [:not_a_keyword]) ==
+               {:error, {:invalid_request_handler_options, [:not_a_keyword]}}
     end
   end
 
