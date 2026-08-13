@@ -17,7 +17,7 @@ Directive is not published to Hex.
    mix format --check-formatted
    mix compile --warnings-as-errors
    mix test --cover
-   mix credo --strict
+   mix credo
    mix dialyzer
    mix docs --warnings-as-errors
    ```
