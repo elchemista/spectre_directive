@@ -7,14 +7,15 @@ and the project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [0.3.0] - 2026-08-13
+
 ### Changed
 
-- Made distribution GitHub-only by removing Hex package metadata, publishing
-  instructions, and package build CI.
-- Replaced the dynamic Spectre source selector with one direct dependency on
-  the Spectre GitHub `0.2.0` tag.
-- Reused Spectre 0.2.0 UUIDv7 identities for durable Directive entities and
-  batched invocation information updates to avoid repeated list traversal.
+- Retained Directive's GitHub-only distribution while replacing the Spectre
+  Git dependency with the stable Hex requirement `{:spectre, "~> 0.3.0"}`.
+- Aligned Directive's package and Stack contracts at `0.3.0` and reused
+  Spectre 0.3.0 UUIDv7 identities for durable Directive entities.
+- Batched invocation information updates to avoid repeated list traversal.
 
 ### Fixed
 
@@ -130,7 +131,8 @@ and the project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - GitHub Actions checks for formatting, warning-free compilation, tests and
   coverage, non-strict Credo, and Dialyzer.
 
-[Unreleased]: https://github.com/elchemista/spectre_directive/compare/v0.2.0...HEAD
+[Unreleased]: https://github.com/elchemista/spectre_directive/compare/v0.3.0...HEAD
+[0.3.0]: https://github.com/elchemista/spectre_directive/compare/v0.2.0...v0.3.0
 [0.2.0]: https://github.com/elchemista/spectre_directive/compare/v0.1.6...v0.2.0
 [0.1.6]: https://github.com/elchemista/spectre_directive/compare/v0.1.5...v0.1.6
 [0.1.5]: https://github.com/elchemista/spectre_directive/compare/v0.1.4...v0.1.5

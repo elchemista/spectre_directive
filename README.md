@@ -22,13 +22,13 @@ documented, while minor releases may still refine public APIs from user
 feedback. See the [changelog](CHANGELOG.md) for what ships and the
 [roadmap](ROADMAP.md) for likely next steps.
 
-The exact `0.2.0` compatibility surface is published in the
+The exact `0.3.0` compatibility surface is published in the
 [public API manifest](docs/PUBLIC_API.md).
 
-## 0.2.0 Spectre Compatibility
+## 0.3.0 Spectre Compatibility
 
-Version `0.2.0` aligns Directive's package and Stack contracts with Spectre
-`~> 0.2.0`. The pure mission reducer and optional runtime remain independent;
+Version `0.3.0` aligns Directive's package and Stack contracts with Spectre
+`~> 0.3.0`. The pure mission reducer and optional runtime remain independent;
 the Agent integration stays a passive, opt-in turn handler while the core owns
 Runs, Instances, Effects, Work, and Vigil.
 
@@ -37,7 +37,7 @@ Runs, Instances, Effects, Work, and Vigil.
 Version `0.1.6` is a consolidation-only release with no new runtime feature and
 no intentional breaking change. Elixir 1.19 on Erlang/OTP 28 is the initially
 guaranteed pair. Uniform CI runs format, warnings-as-errors compilation, tests,
-non-strict Credo, Dialyzer, and ExDoc. The permanent
+strict Credo, Dialyzer, and ExDoc. The permanent
 Directive snapshot fixture under `test/fixtures/compatibility/0.1.6` freezes
 the trusted recovery shape used before the `0.2.0` runtime changes.
 
@@ -82,19 +82,21 @@ The host owns:
 ```elixir
 def deps do
   [
-    {:spectre_directive, github: "elchemista/spectre_directive", tag: "v0.2.0"}
+    {:spectre, "~> 0.3.0"},
+    {:spectre_directive, github: "elchemista/spectre_directive", tag: "v0.3.0"}
   ]
 end
 ```
 
-Spectre Directive is distributed exclusively from GitHub; there is no Hex or
-path-based Spectre dependency in its manifest.
+Spectre Directive remains distributed from GitHub. Its direct Spectre core
+dependency is the stable Hex requirement `{:spectre, "~> 0.3.0"}` rather than
+a Git or path dependency.
 
 The Spectre dependency supplies the immutable Stack contract. Directive's
 pure reducer, GenServer integration, and optional runtime remain usable
 without mounting a Stack.
 
-Version 0.2.0 exposes its continuity configuration through the package-local
+Version 0.3.0 exposes its continuity configuration through the package-local
 Stack DSL:
 
 ```elixir
@@ -133,7 +135,7 @@ Directive runtime, stores, timers, or globally named processes.
 
 ### Agent Instance boundary
 
-Spectre 0.2.0 owns subject continuity through one `Spectre.Instance` addressed
+Spectre 0.3.0 owns subject continuity through one `Spectre.Instance` addressed
 by `AgentRef + Subject`. Every input creates a core-owned `Spectre.Run`; the
 Instance schedules multiple Runs and retains the Agent State:
 
@@ -150,7 +152,7 @@ own the ready queue or Invocation registry, or mutate Agent State outside the
 core Run transition. Its standalone mission runtime and Store snapshots remain
 explicit, package-local facilities in this release. Core Run persistence,
 passivation, recovery, timers, leases, and outbox integration belong to the
-separate core facilities and are not duplicated by Directive 0.2.0.
+separate core facilities and are not duplicated by Directive 0.3.0.
 
 For a complete first walkthrough, read [Getting started](docs/GETTING_STARTED.md).
 The repository also contains examples that run without an LLM or external
@@ -705,11 +707,11 @@ mix deps.get
 mix format --check-formatted
 mix compile --warnings-as-errors
 mix test --cover
-mix credo
+mix credo --strict
 mix dialyzer
 mix docs
 ```
 
-Credo intentionally runs without `--strict`. See [CONTRIBUTING.md](CONTRIBUTING.md)
-for development guidance, [RELEASING.md](RELEASING.md) for the maintainer
-checklist, and [SECURITY.md](SECURITY.md) for vulnerability reporting.
+See [CONTRIBUTING.md](CONTRIBUTING.md) for development guidance,
+[RELEASING.md](RELEASING.md) for the maintainer checklist, and
+[SECURITY.md](SECURITY.md) for vulnerability reporting.

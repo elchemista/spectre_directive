@@ -26,7 +26,7 @@ Run the same checks used for release validation:
 mix format --check-formatted
 mix compile --warnings-as-errors
 mix test --cover
-mix credo
+mix credo --strict
 mix dialyzer
 mix docs --warnings-as-errors
 ```

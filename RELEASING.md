@@ -17,7 +17,7 @@ Directive is not published to Hex.
    mix format --check-formatted
    mix compile --warnings-as-errors
    mix test --cover
-   mix credo
+   mix credo --strict
    mix dialyzer
    mix docs --warnings-as-errors
    ```
@@ -29,8 +29,8 @@ Directive is not published to Hex.
 Create and push an annotated tag matching the Mix version:
 
 ```bash
-git tag -a v0.2.0 -m "Release 0.2.0"
-git push origin v0.2.0
+git tag -a v0.3.0 -m "Release 0.3.0"
+git push origin v0.3.0
 ```
 
 Create a GitHub Release for that tag using the matching changelog section as
@@ -38,5 +38,5 @@ its notes. Verify the source archive, repository documentation, and the
 GitHub-tag installation command. Do not run `mix hex.build` or
 `mix hex.publish`.
 
-Publishing, pushing tags, and creating the GitHub release are intentionally
-manual actions because they change external state and cannot be fully undone.
+Pushing tags and creating the GitHub release are intentionally manual actions
+because they change external state and cannot be fully undone.

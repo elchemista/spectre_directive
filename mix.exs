@@ -1,7 +1,7 @@
 defmodule SpectreDirective.MixProject do
   use Mix.Project
 
-  @version "0.2.0"
+  @version "0.3.0"
   @source_url "https://github.com/elchemista/spectre_directive"
 
   def project do
@@ -123,7 +123,7 @@ defmodule SpectreDirective.MixProject do
       {:credo, "~> 1.7", only: [:dev, :test], runtime: false},
       {:dialyxir, "~> 1.4", only: [:dev], runtime: false},
       {:ex_doc, "~> 0.38", only: :dev, runtime: false},
-      {:spectre, github: "elchemista/spectre", tag: "0.2.0"}
+      {:spectre, "~> 0.3.0"}
     ]
   end
 end
