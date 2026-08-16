@@ -173,7 +173,7 @@ different input returns `{:error, {:directive_turn_id_reused, turn_id}}`.
 Spectre generates a turn id when it is omitted, which is suitable for a single
 local call but cannot identify a later transport retry.
 
-For subject continuity in 0.3.0, use the unique `Spectre.Instance` for the
+For subject continuity, use the unique `Spectre.Instance` for the
 Agent and Subject. It serializes Agent State transitions while fairly
 scheduling multiple core Runs:
 
@@ -194,7 +194,7 @@ external identities nor links Subjects. Stateless module calls and the legacy
 `Spectre.Session` compatibility path remain valid, but the Store must reject
 concurrent stale snapshots, especially across nodes.
 
-The 0.3.0 integration deliberately stops at the Agent Instance boundary.
+The integration deliberately stops at the Agent Instance boundary.
 Directive does not persist or passivate core Runs, own their ready queue or
 Invocation registry, or implement recovery, leases, timers, Ledger, Outbox, or
 Delivery Receipts for them. Those are continuity-plane capabilities planned
