@@ -40,7 +40,7 @@ defmodule Spectre.Directive do
     id: :directive,
     version: "0.1.0",
     contract: 1,
-    spectre: "~> 0.3.0",
+    spectre: "~> 0.3.3",
     provides: [{:service, :continuity}],
     requires: [],
     conflicts: [],

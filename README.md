@@ -66,14 +66,14 @@ The host owns:
 ```elixir
 def deps do
   [
-    {:spectre, "~> 0.3.0"},
+    {:spectre, "~> 0.3.3"},
     {:spectre_directive, github: "elchemista/spectre_directive", branch: "main"}
   ]
 end
 ```
 
 Spectre Directive remains distributed from GitHub. Its direct Spectre core
-dependency is the stable Hex requirement `{:spectre, "~> 0.3.0"}` rather than
+dependency is the stable Hex requirement `{:spectre, "~> 0.3.3"}` rather than
 a Git or path dependency.
 
 The Spectre dependency supplies the immutable Stack contract. Directive's
