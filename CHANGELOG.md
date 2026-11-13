@@ -2,6 +2,8 @@
 
 ## Unreleased — Spectre 0.4
 
+- Rewrite the README around standalone use and Stack → Agent → Server integration; add lifecycle/GAM, migration and explicitly scoped retained-runtime guides to ExDoc.
+
 - Register the pure resumable reducer as a portable AgentServer tool; external requests remain owned by the Server and GAM.
 - Require Spectre `~> 0.4.0`; retain legacy APIs where applicable.
 

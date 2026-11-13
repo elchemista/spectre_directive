@@ -17,7 +17,7 @@ defmodule Spectre.Directive.Store do
         end
       end
 
-  `load/2` returns `{:ok, nil}` when no mission exists for the key. Terminal
+  `c:load/2` returns `{:ok, nil}` when no mission exists for the key. Terminal
   snapshots may be retained for audit; the Spectre integration treats them as
   inactive.
 

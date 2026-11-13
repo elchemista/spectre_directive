@@ -1,5 +1,9 @@
 # Getting started
 
+[Current README](../README.md) · [AgentServer 0.4](SPECTRE_0_4.md) · [Migration](MIGRATING_TO_0_4.md)
+
+Pure reducer and standalone OTP examples remain supported. Agent `handle_directive` and Turn-handler sections refer to the retained legacy integration.
+
 This guide builds one complete Directive flow without an LLM, external service,
 or application framework. It shows where application code takes ownership of
 reasoning and effects.
@@ -11,8 +15,8 @@ Add Spectre Directive to `mix.exs`:
 ```elixir
 def deps do
   [
-    {:spectre, "~> 0.4.0"},
-    {:spectre_directive, github: "elchemista/spectre_directive", branch: "main"}
+    {:spectre, github: "elchemista/spectre", branch: "feature/agent-server-gam", override: true},
+    {:spectre_directive, github: "elchemista/spectre_directive", branch: "feature/stack-tools-0.4"}
   ]
 end
 ```

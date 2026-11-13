@@ -1,0 +1,40 @@
+# Migrate Directive integration from 0.3 to 0.4
+
+This guide targets the current unreleased development branch, not a published
+Hex release. Start with the matching Git dependencies in the [README](../README.md).
+The package's compatibility requirement is Spectre `~> 0.4.0`; use the core
+`feature/agent-server-gam` and satellite `feature/stack-tools-0.4` branches together.
+
+## Move ownership, preserve capabilities
+
+| Earlier integration | AgentServer 0.4 |
+| --- | --- |
+| Agent `handle_directive` / automatic Turn handler | Separate Server uses pure `directive` helper and handles correlated results |
+| A resident mission actor is started by the integration | Store reducer state in Server assigns; standalone OTP runtime remains an explicit alternative |
+| Reducer invokes callbacks/functions as part of a runtime | Server performs configured cognition or proposes effects; pure helper only returns requests |
+| Plan/policy acceptance treated as effect permission | Mission confirmation stays distinct from GAM mandate/admission |
+
+1. Keep the Stack installation and supported provider/configuration choices.
+   Change any dependency pins to the matching branches or reviewed commits.
+2. Keep routes/classification declarations in the Agent, set `server: MyApp.Server`,
+   and move execution callbacks to `use Spectre.Server, tools: MyApp.AI`.
+3. Return the context containing generated helper commands. Handle actual tagged
+   results in `handle_result/3`; there is no synchronous helper result and no import
+   of invented <code>Spectre.Directive.directive/3</code> functions.
+4. For consequential work, configure real host GAM bindings/executors and consent
+   continuations where required. Installing a package does not authorize end-user
+   effects. Follow the [GAM manifest](https://spectre.guide/en/governed-act-model).
+5. Choose and supervise the actual runtime resources and checkpoint Store. Keep
+   handles outside durable assigns; use portable result/state representations.
+6. Exercise recovery with your application's real scope, storage and provider
+   contracts. A changed checkpoint fingerprint requires an explicit core migration;
+   old Instance snapshots are not automatically AgentServer snapshots.
+
+## What remains available
+
+The pure reducer and optional OTP mission runtime remain supported. The Agent extension, `handle_directive` and Turn-handler examples describe the retained legacy integration. In AgentServer 0.4, use the pure reducer helper rather than starting another mission owner implicitly.
+
+See the [retained reference](REDUCER_AND_OTP_RUNTIME.md) for these APIs and
+[0.4 helper/lifecycle contracts](SPECTRE_0_4.md) for the new integration. Migration
+is an ownership/API change, not a promise that every legacy convenience now
+implicitly routes through AgentServer or GAM.

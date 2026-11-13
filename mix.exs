@@ -36,9 +36,12 @@ defmodule SpectreDirective.MixProject do
   defp docs do
     [
       main: "readme",
-      source_ref: "v#{@version}",
+      source_ref: "feature/stack-tools-0.4",
       extras: [
         "README.md",
+        "docs/SPECTRE_0_4.md",
+        "docs/MIGRATING_TO_0_4.md",
+        "docs/REDUCER_AND_OTP_RUNTIME.md",
         "docs/PUBLIC_API.md",
         "docs/GETTING_STARTED.md",
         "docs/SPECTRE_AGENT_INTEGRATION.md",
@@ -53,6 +56,9 @@ defmodule SpectreDirective.MixProject do
       groups_for_extras: [
         "Start here": [
           "README.md",
+          "docs/SPECTRE_0_4.md",
+          "docs/MIGRATING_TO_0_4.md",
+          "docs/REDUCER_AND_OTP_RUNTIME.md",
           "docs/PUBLIC_API.md",
           "docs/GETTING_STARTED.md",
           "docs/SPECTRE_AGENT_INTEGRATION.md",

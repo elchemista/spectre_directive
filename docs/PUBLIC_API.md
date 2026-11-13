@@ -1,7 +1,11 @@
 # Spectre Directive public API — 0.1.0
 
+[Current README](../README.md) · [AgentServer 0.4](SPECTRE_0_4.md) · [Migration](MIGRATING_TO_0_4.md)
+
+Pure reducer and standalone OTP examples remain supported. Agent `handle_directive` and Turn-handler sections refer to the retained legacy integration.
+
 This file is the normative public API manifest for Spectre Directive `0.1.0`.
-Its package and Stack contracts target Spectre `0.3.3`. Compatibility
+This development branch targets Spectre `0.4.0`. Compatibility
 guarantees apply only to the
 modules and callables listed below. Any module, function, macro, or callback
 not listed here is an implementation detail even when it is exported or
@@ -98,3 +102,10 @@ type, and struct contract.
   - functions: `new/3`, `new/4`
 - `SpectreDirective.WorkingContext`
   - functions: `add/2`, `add/3`, `add_many/2`, `add_many/3`, `new/0`, `new/1`, `put_assigns/2`
+
+## AgentServer 0.4 boundary
+
+The `tools/1` implementation of `c:Spectre.Stack.Installable.tools/1` registers the pure reducer helper through the Stack.
+The generated `directive/3` is private to the Server. Its tagged results carry
+portable requests and bounded canonical reducer state; it does not execute the
+requested callbacks or start a mission owner. See [the guide](SPECTRE_0_4.md).
