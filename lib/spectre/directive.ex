@@ -40,7 +40,7 @@ defmodule Spectre.Directive do
     id: :directive,
     version: "0.1.0",
     contract: 1,
-    spectre: "~> 0.3.3",
+    spectre: "~> 0.4.0",
     provides: [{:service, :continuity}],
     requires: [],
     conflicts: [],
@@ -59,6 +59,9 @@ defmodule Spectre.Directive do
   def compile(opts, block, caller) do
     StackCompiler.compile(opts, block, caller)
   end
+
+  @impl Spectre.Stack.Installable
+  def tools(config), do: Spectre.Directive.ServerTool.tools(config)
 
   @doc "Imports the Directive DSL and installs the appropriate host integration."
   @spec __using__(keyword()) :: Macro.t()

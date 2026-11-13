@@ -11,7 +11,7 @@ Add Spectre Directive to `mix.exs`:
 ```elixir
 def deps do
   [
-    {:spectre, "~> 0.3.3"},
+    {:spectre, "~> 0.4.0"},
     {:spectre_directive, github: "elchemista/spectre_directive", branch: "main"}
   ]
 end

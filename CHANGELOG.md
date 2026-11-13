@@ -1,5 +1,10 @@
 # Changelog
 
+## Unreleased — Spectre 0.4
+
+- Register the pure resumable reducer as a portable AgentServer tool; external requests remain owned by the Server and GAM.
+- Require Spectre `~> 0.4.0`; retain legacy APIs where applicable.
+
 All notable changes to Spectre Directive are documented in this file.
 
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),

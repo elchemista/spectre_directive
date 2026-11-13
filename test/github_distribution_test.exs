@@ -12,7 +12,7 @@ defmodule SpectreDirective.GitHubDistributionTest do
         assert opts[:override]
 
       _unset ->
-        assert dependency == {:spectre, "~> 0.3.3"}
+        assert dependency == {:spectre, "~> 0.4.0"}
     end
 
     refute Keyword.has_key?(config, :package)

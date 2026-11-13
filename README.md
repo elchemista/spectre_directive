@@ -66,14 +66,14 @@ The host owns:
 ```elixir
 def deps do
   [
-    {:spectre, "~> 0.3.3"},
+    {:spectre, "~> 0.4.0"},
     {:spectre_directive, github: "elchemista/spectre_directive", branch: "main"}
   ]
 end
 ```
 
 Spectre Directive remains distributed from GitHub. Its direct Spectre core
-dependency is the stable Hex requirement `{:spectre, "~> 0.3.3"}` rather than
+dependency is the stable Hex requirement `{:spectre, "~> 0.4.0"}` rather than
 a Git or path dependency.
 
 The Spectre dependency supplies the immutable Stack contract. Directive's
@@ -699,3 +699,24 @@ mix docs
 See [CONTRIBUTING.md](CONTRIBUTING.md) for development guidance,
 [RELEASING.md](RELEASING.md) for the maintainer checklist, and
 [SECURITY.md](SECURITY.md) for vulnerability reporting.
+
+## AgentServer / Spectre 0.4
+
+This branch implements the optional `Spectre.Stack.Installable.tools/1`
+registration contract. Install the package in the Agent's Stack and use
+`use Spectre.Server, tools: MyApp.AI` in the separate Server module. The core
+creates helpers; this package does not export functions to import into the
+Server. Tool results arrive through `on_result` after durable acquisition.
+
+`directive(ctx, {:new, %{mission: "Inspect a site", reasoner: :model}},
+on_result: :mission)` returns `{:directive, %{status: :request, data: request,
+state: encoded_state}}`. Store the bounded canonical `state` binary in assigns.
+Use `{:next, state}`, `{:respond, state, request_id, response}` and
+`{:inform, state, information}` to drive the same pure reducer. Its requests
+remain data: the host calls the model for reasoning and uses GAM for effects,
+then feeds the actual outcome back with `respond`. No second owner, automatic
+executor or hidden authorization loop is started. Callback functions are not
+allowed in durable state; use stable module/MFA targets as descriptive data.
+
+For local integration tests set `SPECTRE_PATH=../spectre`; the core branch is
+`feature/agent-server-gam`. No transport credentials are needed for fixture tests.
