@@ -98,3 +98,27 @@ callbacks are not GAM admission or a substitute for an admitted Act.
 - [Standalone and retained runtime reference](docs/REDUCER_AND_OTP_RUNTIME.md)
 - [Public API](docs/PUBLIC_API.md) and [changelog](CHANGELOG.md)
 - [Governed Act Model](https://spectre.guide/en/governed-act-model) and [core tool lifecycle](https://github.com/elchemista/spectre/blob/feature/agent-server-gam/docs/STACK_TOOLS.md)
+
+## Use inside a reusable Skill
+
+The `directive` helper is generated in a Skill callback module with
+`use Spectre.Server, tools: MyApp.AI`, using the same installed Stack. A
+`Spectre.Skill` with `server:` has a separate GenServer, local assigns, workers,
+streams, pending intentions and checkpoint key.
+
+**It uses the root AgentServer's same automatic GAM integration, Domain and
+authority ledger.** Configure `gam:` once on the root. Mounting a Skill creates
+no new Domain or grant and needs no additional Host or consent ingress. Shared
+Stack resources stay in their existing supervised runtime.
+
+Agent and Skill workers can run concurrently; the shared kernel orders admission.
+A governed effect must be enabled in root `operations` and permitted by the
+mount's `governed:` references. Each Skill proposal records its mount and
+invocation provenance. Consent identifies the originating Skill and exact
+presentation: approving an email cannot approve another Skill's memory write.
+Timer closure is recorded in the same Domain and does not erase a Duty.
+Ordinary cognitive operations retain their configured provider boundary.
+
+See the [core Skill ownership and consent guide](https://github.com/elchemista/spectre/blob/feature/agent-server-gam/docs/SKILLS.md),
+[automatic GAM responsibilities](https://github.com/elchemista/spectre/blob/feature/agent-server-gam/docs/MANAGED_GAM.md)
+and [two-Skill LiveView showcase](https://github.com/elchemista/spectre/blob/feature/agent-server-gam/docs/DEMO.md).
