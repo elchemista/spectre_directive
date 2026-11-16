@@ -1,4 +1,8 @@
-# Integrating with Spectre Agent
+# Retained Agent/Turn integration
+
+[Current README](../README.md) · [AgentServer 0.4](SPECTRE_0_4.md) · [Migration](MIGRATING_TO_0_4.md)
+
+Pure reducer and standalone OTP examples remain supported. Agent `handle_directive` and Turn-handler sections refer to the retained legacy integration.
 
 Spectre Agent and Spectre Directive own different state:
 
@@ -407,6 +411,6 @@ Unknown names should fail closed. Keep authorization in a policy handler;
 guided/autonomous mode controls plan changes, not permission to perform an
 effect.
 
-Run [`spectre_agent.exs`](../examples/spectre_agent.exs) for the live-mission
-mode and [`persistent_spectre_agent.exs`](../examples/persistent_spectre_agent.exs)
+Run [`spectre_agent.exs`](https://github.com/elchemista/spectre_directive/blob/feature/stack-tools-0.4/examples/spectre_agent.exs) for the live-mission
+mode and [`persistent_spectre_agent.exs`](https://github.com/elchemista/spectre_directive/blob/feature/stack-tools-0.4/examples/persistent_spectre_agent.exs)
 for ordinary persisted Spectre turns.

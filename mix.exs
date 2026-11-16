@@ -9,6 +9,7 @@ defmodule SpectreDirective.MixProject do
       app: :spectre_directive,
       name: "SpectreDirective",
       version: @version,
+      package: package(),
       elixir: "~> 1.19",
       start_permanent: Mix.env() == :prod,
       deps: deps(),
@@ -35,10 +36,14 @@ defmodule SpectreDirective.MixProject do
 
   defp docs do
     [
+      assets: %{"docs/assets" => "docs/assets"},
       main: "readme",
-      source_ref: "v#{@version}",
+      source_ref: "feature/stack-tools-0.4",
       extras: [
         "README.md",
+        "docs/SPECTRE_0_4.md",
+        "docs/MIGRATING_TO_0_4.md",
+        "docs/REDUCER_AND_OTP_RUNTIME.md",
         "docs/PUBLIC_API.md",
         "docs/GETTING_STARTED.md",
         "docs/SPECTRE_AGENT_INTEGRATION.md",
@@ -53,6 +58,9 @@ defmodule SpectreDirective.MixProject do
       groups_for_extras: [
         "Start here": [
           "README.md",
+          "docs/SPECTRE_0_4.md",
+          "docs/MIGRATING_TO_0_4.md",
+          "docs/REDUCER_AND_OTP_RUNTIME.md",
           "docs/PUBLIC_API.md",
           "docs/GETTING_STARTED.md",
           "docs/SPECTRE_AGENT_INTEGRATION.md",
@@ -133,7 +141,20 @@ defmodule SpectreDirective.MixProject do
         {:spectre, path: Path.expand(path, __DIR__), override: true}
 
       _unset ->
-        {:spectre, "~> 0.3.3"}
+        {:spectre, "~> 0.4.0"}
     end
+  end
+
+  defp package do
+    [
+      licenses: ["Apache-2.0"],
+      links: %{
+        "GitHub" => @source_url,
+        "Documentation" => "#{@source_url}/blob/feature/stack-tools-0.4/README.md",
+        "Changelog" => "#{@source_url}/blob/feature/stack-tools-0.4/CHANGELOG.md"
+      },
+      files:
+        ~w(lib docs examples mix.exs .formatter.exs README.md CHANGELOG.md SECURITY.md LICENSE)
+    ]
   end
 end

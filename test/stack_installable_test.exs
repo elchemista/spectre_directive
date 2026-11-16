@@ -63,7 +63,7 @@ defmodule SpectreDirective.StackInstallableTest do
     assert package.id == :directive
     assert package.version == "0.1.0"
     assert package.contract == 1
-    assert package.spectre == "~> 0.3.3"
+    assert package.spectre == "~> 0.4.0"
     assert package.provides == [{:service, :continuity}]
     assert package.operations == []
     assert package.actions == []

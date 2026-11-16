@@ -1,0 +1,7 @@
+flowchart LR
+  S["AgentServer"] -->|"new / respond"| D["Pure mission reducer"]
+  D -->|"request + encoded state"| S
+  S -->|"reason / ask user"| H["Host / model"]
+  H -->|"answer"| S
+  S -->|"invocation proposal"| G["GAM"]
+  G -->|"observed outcome"| S

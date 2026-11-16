@@ -1,7 +1,9 @@
 # Releasing
 
 This checklist is for maintainers preparing a GitHub-only release. Spectre
-Directive is not published to Hex.
+Directive is not published to Hex. The `feature/stack-tools-0.4` branch is
+unreleased; use the matching core branch or local `SPECTRE_PATH` override while
+validating it. Updating documentation does not create a release.
 
 ## Prepare the release
 
@@ -29,8 +31,8 @@ Directive is not published to Hex.
 Create and push an annotated tag matching the Mix version:
 
 ```bash
-git tag -a v0.3.0 -m "Release 0.3.0"
-git push origin v0.3.0
+git tag -a vVERSION -m "Release VERSION"
+git push origin vVERSION
 ```
 
 Create a GitHub Release for that tag using the matching changelog section as

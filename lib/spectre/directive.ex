@@ -1,16 +1,23 @@
 defmodule Spectre.Directive do
   @moduledoc """
-  Public API for authored and emergent self-correcting mission loops.
+  Authored and emergent missions, available as a pure reducer or an OTP runtime.
 
-  Directive can be used as a pure reducer, as a supervised OTP runtime, inside
-  a regular GenServer, or together with `Spectre.Agent`. The package defines
-  this namespace and publishes an immutable Spectre Stack installation that
-  activates continuity on Stack-bound Agents without claiming ownership of its
-  optional runtime. The standalone mission engine remains an explicitly
-  selected host facility; it is never used as a second `Spectre.Run`
-  executor.
+  In Spectre 0.4, installing Directive in a Stack and selecting that Stack through
+  `use Spectre.Server, tools: MyApp.AI` generates the private
+  `directive(ctx, operation, opts)` helper. Its `:new`, `:next`, `:respond` and
+  `:inform` operations advance a bounded, portable mission state and return a
+  request or outcome. They do not execute the requested action.
 
-  Use the DSL in an application module:
+  The application handles model, question and confirmation requests in Server
+  callbacks. Effectful invocation is proposed through the host's GAM binding;
+  planning or installing Directive grants no authority. The Server remains the
+  owner of continuations and recovery. See the [0.4 integration guide](SPECTRE_0_4.md)
+  and [Governed Act Model](https://spectre.guide/en/governed-act-model).
+
+  Native `SpectreDirective` reducers and the optional supervised mission runtime
+  remain available separately. They do not automatically acquire AgentServer
+  persistence or GAM admission. The retained authoring DSL is useful for native
+  blueprints:
 
       defmodule MyApp.ClientResearch do
         use Spectre.Directive
@@ -20,8 +27,6 @@ defmodule Spectre.Directive do
           mode :guided
         end
       end
-
-  See the project README for complete standalone, Agent, and GenServer flows.
   """
 
   alias Spectre.Directive.StackCompiler
@@ -40,7 +45,7 @@ defmodule Spectre.Directive do
     id: :directive,
     version: "0.1.0",
     contract: 1,
-    spectre: "~> 0.3.3",
+    spectre: "~> 0.4.0",
     provides: [{:service, :continuity}],
     requires: [],
     conflicts: [],
@@ -59,6 +64,9 @@ defmodule Spectre.Directive do
   def compile(opts, block, caller) do
     StackCompiler.compile(opts, block, caller)
   end
+
+  @impl Spectre.Stack.Installable
+  def tools(config), do: Spectre.Directive.ServerTool.tools(config)
 
   @doc "Imports the Directive DSL and installs the appropriate host integration."
   @spec __using__(keyword()) :: Macro.t()
