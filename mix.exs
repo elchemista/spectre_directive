@@ -9,6 +9,7 @@ defmodule SpectreDirective.MixProject do
       app: :spectre_directive,
       name: "SpectreDirective",
       version: @version,
+      package: package(),
       elixir: "~> 1.19",
       start_permanent: Mix.env() == :prod,
       deps: deps(),
@@ -35,6 +36,7 @@ defmodule SpectreDirective.MixProject do
 
   defp docs do
     [
+      assets: %{"docs/assets" => "docs/assets"},
       main: "readme",
       source_ref: "feature/stack-tools-0.4",
       extras: [
@@ -141,5 +143,18 @@ defmodule SpectreDirective.MixProject do
       _unset ->
         {:spectre, "~> 0.4.0"}
     end
+  end
+
+  defp package do
+    [
+      licenses: ["Apache-2.0"],
+      links: %{
+        "GitHub" => @source_url,
+        "Documentation" => "#{@source_url}/blob/feature/stack-tools-0.4/README.md",
+        "Changelog" => "#{@source_url}/blob/feature/stack-tools-0.4/CHANGELOG.md"
+      },
+      files:
+        ~w(lib docs examples mix.exs .formatter.exs README.md CHANGELOG.md SECURITY.md LICENSE)
+    ]
   end
 end

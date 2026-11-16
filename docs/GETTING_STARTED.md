@@ -1,8 +1,6 @@
-# Getting started
+# Standalone reducer quickstart
 
 [Current README](../README.md) · [AgentServer 0.4](SPECTRE_0_4.md) · [Migration](MIGRATING_TO_0_4.md)
-
-Pure reducer and standalone OTP examples remain supported. Agent `handle_directive` and Turn-handler sections refer to the retained legacy integration.
 
 This guide builds one complete Directive flow without an LLM, external service,
 or application framework. It shows where application code takes ownership of
@@ -122,7 +120,7 @@ belong to the host and can use an explicit policy handler.
 
 - Run the [DSL and Spectre Agent examples](../examples/EXAMPLES.md).
 - Read the public API in `Spectre.Directive`.
-- Use the authored DSL in the README when missions should be reusable modules.
-- Follow the [Spectre Agent integration guide](SPECTRE_AGENT_INTEGRATION.md) for
-  questions, repeated replies, event-driven channels, and completion.
+- Use the authored DSL in the [reducer/runtime reference](REDUCER_AND_OTP_RUNTIME.md) for reusable mission modules.
+- For new Server applications, use the [AgentServer integration](SPECTRE_0_4.md).
+  The [legacy Agent guide](SPECTRE_AGENT_INTEGRATION.md) covers retained Turn handlers.
 - Read `SECURITY.md` before resolving model-generated invocation names.

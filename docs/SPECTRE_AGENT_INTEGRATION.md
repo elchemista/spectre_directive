@@ -1,4 +1,4 @@
-# Integrating with Spectre Agent
+# Retained Agent/Turn integration
 
 [Current README](../README.md) · [AgentServer 0.4](SPECTRE_0_4.md) · [Migration](MIGRATING_TO_0_4.md)
 

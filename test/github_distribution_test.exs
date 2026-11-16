@@ -15,6 +15,8 @@ defmodule SpectreDirective.GitHubDistributionTest do
         assert dependency == {:spectre, "~> 0.4.0"}
     end
 
-    refute Keyword.has_key?(config, :package)
+    assert config[:package][:licenses] == ["Apache-2.0"]
+    assert "docs" in config[:package][:files]
+    refute "test" in config[:package][:files]
   end
 end

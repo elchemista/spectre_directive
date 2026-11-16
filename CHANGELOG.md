@@ -2,7 +2,14 @@
 
 ## Unreleased — Spectre 0.4
 
-- Rewrite the README around standalone use and Stack → Agent → Server integration; add lifecycle/GAM, migration and explicitly scoped retained-runtime guides to ExDoc.
+- Exercise the existing 0.4 branch in CI against explicit compatible source checkouts; refresh obsolete dependency locks.
+
+- Add Apache-2.0 package metadata, source links and explicit distribution files,
+  including guides and examples, for release artifact validation.
+
+- Document a runnable Stack → Agent → Server setup, with package-specific
+  contracts and links to the shared GAM, Skill and recovery guides. Retained
+  standalone and Instance/Run APIs remain documented separately.
 
 - Register the pure resumable reducer as a portable AgentServer tool; external requests remain owned by the Server and GAM.
 - Require Spectre `~> 0.4.0`; retain legacy APIs where applicable.
