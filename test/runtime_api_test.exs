@@ -725,8 +725,7 @@ defmodule SpectreDirective.RuntimeAPITest do
     end
 
     test "mission process helpers reject dead and malformed references" do
-      dead = spawn(fn -> :ok end)
-      ref = Process.monitor(dead)
+      {dead, ref} = spawn_monitor(fn -> :ok end)
       assert_receive {:DOWN, ^ref, :process, ^dead, :normal}, 1_000
 
       assert {:error, :not_found} = MissionProcesses.state(dead)
