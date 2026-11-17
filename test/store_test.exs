@@ -167,4 +167,38 @@ defmodule SpectreDirective.StoreTest do
 
     assert :ok = Plan.validate(snapshot.state.plan)
   end
+
+  test "stored snapshot corruption is rejected before it can be resumed", %{snapshot: snapshot} do
+    corruptions = [
+      {:version, 2, {:unsupported_snapshot_version, 2}},
+      {:revision, 0, {:invalid_snapshot_revision, 0}},
+      {:key, nil, :snapshot_key_required},
+      {:state, %{}, {:invalid_snapshot_state, :map}},
+      {:snapshotted_at, "yesterday", {:invalid_snapshot_timestamp, :binary}},
+      {:runtime_opts, [:auto], {:invalid_snapshot_runtime_options, :list}},
+      {:metadata, :invalid, {:invalid_snapshot_metadata, :atom}},
+      {:turn_receipts, nil, {:invalid_snapshot_turn_receipts, :atom}},
+      {:turn_receipts, %{message: :truncated}, {:invalid_snapshot_turn_receipts, :map}}
+    ]
+
+    for {field, value, reason} <- corruptions do
+      damaged = Map.put(snapshot, field, value)
+      assert {:error, ^reason} = Snapshot.validate(damaged)
+
+      assert {:error, ^reason} =
+               Store.load({TestStore, test_pid: self()}, damaged.key, stored_snapshot: damaged)
+    end
+  end
+
+  test "turns without delivery identifiers create no replay receipt", %{state: state} do
+    snapshot = Snapshot.new(:untracked, state)
+
+    assert Snapshot.record_turn(snapshot, nil, "yes", {:request, :confirmation}, "Confirm?") ==
+             snapshot
+
+    assert :miss = Snapshot.replay(snapshot, nil, "yes")
+
+    assert_raise ArgumentError, fn -> Snapshot.new(:untracked, state, runtime_opts: [:auto]) end
+    assert_raise ArgumentError, fn -> Snapshot.new(:untracked, state, metadata: :invalid) end
+  end
 end
