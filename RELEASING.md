@@ -1,9 +1,8 @@
 # Releasing
 
-This checklist is for maintainers preparing a GitHub-only release. Spectre
-Directive is not published to Hex. The `feature/stack-tools-0.4` branch is
-unreleased; use the matching core branch or local `SPECTRE_PATH` override while
-validating it. Updating documentation does not create a release.
+This checklist prepares matching source and Hex artifacts. Validate against
+Spectre `~> 0.4.0`; use `SPECTRE_PATH` for an explicit local compatibility checkout.
+Tagging and publication are separate maintainer actions.
 
 ## Prepare the release
 
@@ -24,21 +23,22 @@ validating it. Updating documentation does not create a release.
    mix docs --warnings-as-errors
    ```
 
-5. Merge the release changes and wait for all GitHub Actions checks on `main`.
+5. Merge the release changes, run CI on the final `main` commit and validate the
+   package with `mix hex.publish --dry-run`.
 
 ## Publish on GitHub
 
 Create and push an annotated tag matching the Mix version:
 
 ```bash
-git tag -a vVERSION -m "Release VERSION"
-git push origin vVERSION
+git tag -a VERSION -m "Release VERSION"
+git push origin VERSION
 ```
 
 Create a GitHub Release for that tag using the matching changelog section as
 its notes. Verify the source archive, repository documentation, and the
-GitHub-tag installation command. Do not run `mix hex.build` or
-`mix hex.publish`.
+GitHub-tag installation command. Publish the reviewed package with
+`mix hex.publish` after its Spectre dependency is available on Hex.
 
 Pushing tags and creating the GitHub release are intentionally manual actions
 because they change external state and cannot be fully undone.

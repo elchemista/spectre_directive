@@ -5,7 +5,7 @@
 Pure reducer and standalone OTP examples remain supported. Agent `handle_directive` and Turn-handler sections refer to the retained legacy integration.
 
 This file is the normative public API manifest for Spectre Directive `0.1.0`.
-This development branch targets Spectre `0.4.0`. Compatibility
+This package targets Spectre `0.4.0`. Compatibility
 guarantees apply only to the
 modules and callables listed below. Any module, function, macro, or callback
 not listed here is an implementation detail even when it is exported or

@@ -13,8 +13,8 @@ Add Spectre Directive to `mix.exs`:
 ```elixir
 def deps do
   [
-    {:spectre, github: "elchemista/spectre", branch: "feature/agent-server-gam", override: true},
-    {:spectre_directive, github: "elchemista/spectre_directive", branch: "feature/stack-tools-0.4"}
+    {:spectre, "~> 0.4.0"},
+    {:spectre_directive, "~> 0.1.0"}
   ]
 end
 ```

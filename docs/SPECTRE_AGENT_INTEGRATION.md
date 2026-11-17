@@ -411,6 +411,6 @@ Unknown names should fail closed. Keep authorization in a policy handler;
 guided/autonomous mode controls plan changes, not permission to perform an
 effect.
 
-Run [`spectre_agent.exs`](https://github.com/elchemista/spectre_directive/blob/feature/stack-tools-0.4/examples/spectre_agent.exs) for the live-mission
-mode and [`persistent_spectre_agent.exs`](https://github.com/elchemista/spectre_directive/blob/feature/stack-tools-0.4/examples/persistent_spectre_agent.exs)
+Run [`spectre_agent.exs`](https://github.com/elchemista/spectre_directive/blob/0.1.0/examples/spectre_agent.exs) for the live-mission
+mode and [`persistent_spectre_agent.exs`](https://github.com/elchemista/spectre_directive/blob/0.1.0/examples/persistent_spectre_agent.exs)
 for ordinary persisted Spectre turns.

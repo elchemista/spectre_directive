@@ -17,24 +17,20 @@ silently start another actor, call a model or execute a requested function.
 Directive owns mission transitions and request correlation. The Server decides
 how to answer each request and submits consequential work to GAM.
 
-## Installation on the 0.4 development branch
+## Installation
 
-Use these matching branches while core 0.4 is unreleased. Pin reviewed commit
-refs for deployment; satellite package versions are independent of core.
+Add the packages to your application:
 
 ```elixir
-def deps do
+defp deps do
   [
-    {:spectre, github: "elchemista/spectre",
-     branch: "feature/agent-server-gam", override: true},
-    {:spectre_directive, github: "elchemista/spectre_directive",
-     branch: "feature/stack-tools-0.4"}
+    {:spectre, "~> 0.4.0"},
+    {:spectre_directive, "~> 0.1.0"}
   ]
 end
 ```
 
-The manifest requirement `{:spectre, "~> 0.4.0"}` describes compatibility, not
-publication availability. Local contributors can use `SPECTRE_PATH=../spectre` for this repository's dependency override.
+For local development, use `SPECTRE_PATH=../spectre` when testing this repository.
 
 ## Start a mission in AgentServer
 
@@ -106,16 +102,16 @@ callbacks are not GAM admission or a substitute for an admitted Act.
 - [Migration from the 0.3 integration](docs/MIGRATING_TO_0_4.md)
 - [Standalone and retained runtime reference](docs/REDUCER_AND_OTP_RUNTIME.md)
 - [Public API](docs/PUBLIC_API.md) and [changelog](CHANGELOG.md)
-- [Governed Act Model](https://spectre.guide/en/governed-act-model) and [core tool lifecycle](https://github.com/elchemista/spectre/blob/feature/agent-server-gam/docs/STACK_TOOLS.md)
+- [Governed Act Model](https://spectre.guide/en/governed-act-model) and [core tool lifecycle](https://github.com/elchemista/spectre/blob/0.4.0/docs/STACK_TOOLS.md)
 
 ## Runtime and examples
 
-The generated `directive` helper also works in [Skill Server callbacks](https://github.com/elchemista/spectre/blob/feature/agent-server-gam/docs/SKILLS.md).
+The generated `directive` helper also works in [Skill Server callbacks](https://github.com/elchemista/spectre/blob/0.4.0/docs/SKILLS.md).
 Skills share the root's GAM Domain; enable governed operations on the root and
 allow them in the mount's `governed:` references. The
-[core tool guide](https://github.com/elchemista/spectre/blob/feature/agent-server-gam/docs/STACK_TOOLS.md) covers scheduling and recovery;
-[Managed GAM](https://github.com/elchemista/spectre/blob/feature/agent-server-gam/docs/MANAGED_GAM.md) covers consent and registered execution.
+[core tool guide](https://github.com/elchemista/spectre/blob/0.4.0/docs/STACK_TOOLS.md) covers scheduling and recovery;
+[Managed GAM](https://github.com/elchemista/spectre/blob/0.4.0/docs/MANAGED_GAM.md) covers consent and registered execution.
 
 See the [LiveView demo](https://github.com/elchemista/demo_spectre) for an application,
 the [Spectre guides](https://spectre.guide) for articles, and the
-[release audit](https://github.com/elchemista/spectre/blob/feature/agent-server-gam/docs/RELEASE_0_4.md) for verified revisions.
+[release audit](https://github.com/elchemista/spectre/blob/0.4.0/docs/RELEASE_0_4.md) for verified revisions.
