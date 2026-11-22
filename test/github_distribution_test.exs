@@ -13,11 +13,12 @@ defmodule SpectreDirective.GitHubDistributionTest do
         assert opts[:override]
 
       _unset ->
-        assert dependency == {:spectre, "~> 0.4.0"}
+        assert dependency == {:spectre, "~> 0.4.1"}
     end
 
     assert config[:package][:licenses] == ["Apache-2.0"]
     assert "docs" in config[:package][:files]
+    assert "priv" in config[:package][:files]
     refute "test" in config[:package][:files]
   end
 end

@@ -6,15 +6,16 @@ is required.
 
 | Example | What it demonstrates | Command |
 | --- | --- | --- |
+| `agent_server_activity.exs` | Concurrent Directive missions, revision by reference and provider failure reporting | `SPECTRE_PATH=../spectre mix run examples/agent_server_activity.exs` |
 | `pure_loop.exs` | Manually driving every pure reducer boundary | `mix run examples/pure_loop.exs` |
 | `automatic_runtime.exs` | Supervised automatic reasoner and invocation execution | `mix run examples/automatic_runtime.exs` |
 | `dsl_showcase.exs` | Named directives, all authored DSL declarations, policy, and completion callbacks | `mix run examples/dsl_showcase.exs` |
 | `spectre_agent.exs` | Spectre Agent questions, repeated replies, a trusted symbolic invocation, and completion | `MIX_ENV=test mix run examples/spectre_agent.exs` |
 | `persistent_spectre_agent.exs` | A Store-backed mission resumed by ordinary Spectre turns, including guided confirmation, repeated questions, completion, and return to normal routing | `MIX_ENV=test mix run examples/persistent_spectre_agent.exs` |
 
-The Spectre Agent examples use `MIX_ENV=test` because Spectre is intentionally
-a test-only dependency of this repository. Published applications should
-depend on both `:spectre` and `:spectre_directive` themselves.
+The last two examples exercise the retained Agent integration. For a new
+AgentServer, start with the Activity example and the
+[AgentServer integration guide](../docs/SPECTRE_0_4.md).
 
 ## Authored DSL declarations
 

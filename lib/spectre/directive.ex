@@ -2,6 +2,10 @@ defmodule Spectre.Directive do
   @moduledoc """
   Authored and emergent missions, available as a pure reducer or an OTP runtime.
 
+  Install Directive in a Spectre 0.4.1 Stack, then start a mission from a
+  Server callback with `start_activity(ctx, {:directive, :mission}, %{goal: goal})`.
+  See `Spectre.Directive.Activity` for the supported options and model protocol.
+
   In Spectre 0.4, installing Directive in a Stack and selecting that Stack through
   `use Spectre.Server, tools: MyApp.AI` generates the private
   `directive(ctx, operation, opts)` helper. Its `:new`, `:next`, `:respond` and
@@ -29,7 +33,7 @@ defmodule Spectre.Directive do
       end
   """
 
-  alias Spectre.Directive.StackCompiler
+  alias Spectre.Directive.{ServerTool, StackCompiler}
   alias SpectreDirective.Context
   alias SpectreDirective.Loop.Engine
   alias SpectreDirective.Loop.State
@@ -43,9 +47,9 @@ defmodule Spectre.Directive do
 
   use Spectre.Stack.Installable,
     id: :directive,
-    version: "0.1.0",
+    version: "0.2.0",
     contract: 1,
-    spectre: "~> 0.4.0",
+    spectre: "~> 0.4.1",
     provides: [{:service, :continuity}],
     requires: [],
     conflicts: [],
@@ -60,13 +64,25 @@ defmodule Spectre.Directive do
   @type runtime_result(value) :: {:ok, value} | {:error, term()}
   @type input_boundary :: {:request, Request.t()} | {:outcome, Outcome.t()}
 
+  @doc "Compiles the Directive installation and its optional standalone runtime settings."
   @impl Spectre.Stack.Installable
+  @spec compile(keyword(), Macro.t() | nil, Macro.Env.t()) :: {:ok, map()} | {:error, term()}
   def compile(opts, block, caller) do
     StackCompiler.compile(opts, block, caller)
   end
 
+  @doc "Declares the cognitive reducer operations exposed by the generated `directive` helper."
   @impl Spectre.Stack.Installable
-  def tools(config), do: Spectre.Directive.ServerTool.tools(config)
+  @spec tools(map() | keyword()) :: Spectre.Stack.Tools.t()
+  def tools(config), do: ServerTool.tools(config)
+
+  @doc "Registers the on-demand `{:directive, :mission}` Activity type."
+  @impl Spectre.Stack.Installable
+  @spec integration(map() | keyword()) :: Spectre.Integration.t()
+  def integration(_config) do
+    Spectre.Integration.new()
+    |> Spectre.Integration.activity(:mission, Spectre.Directive.Activity)
+  end
 
   @doc "Imports the Directive DSL and installs the appropriate host integration."
   @spec __using__(keyword()) :: Macro.t()

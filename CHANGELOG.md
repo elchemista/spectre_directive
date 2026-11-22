@@ -1,5 +1,29 @@
 # Changelog
 
+## 0.2.0 — Unreleased
+
+### Added
+
+- Install Directive in a Spectre Stack and start `{:directive, :mission}` as an
+  on-demand Activity. It advances the existing reducer using the agent's model,
+  scoped tools, and user replies while the Root remains available for other turns.
+- Run several missions independently and address them by Activity reference.
+  A revised mission keeps its Activity reference and invalidates earlier replies.
+- Use `Spectre.Directive.Activity` in a custom Activity to continue an
+  application workflow from a correlated tool result.
+
+### Changed
+
+- Report unknown aliases and rejected tool arguments to the reasoner within
+  the mission's iteration budget. A previously retired invocation remains
+  blocked and returns an error the reasoner can act on.
+
+### Compatibility
+
+- The native Activity requires Spectre `~> 0.4.1`. The pure reducer, generated
+  `directive/3` helper and standalone OTP runtime retain their existing entry points.
+- Consequential tool calls use the host's GAM permissions and consent lifecycle.
+
 ## 0.1.0 — 2026-11-17
 
 - Exercise the existing 0.4 branch in CI against explicit compatible source checkouts; refresh obsolete dependency locks.
@@ -19,7 +43,9 @@ All notable changes to Spectre Directive are documented in this file.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and the project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## Earlier GitHub distribution
+
+The entries below describe the original GitHub-only series.
 
 ## [0.3.0] - 2026-08-13
 

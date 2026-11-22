@@ -1,11 +1,11 @@
-# Spectre Directive public API — 0.1.0
+# Spectre Directive public API — 0.2.0
 
 [Current README](../README.md) · [AgentServer 0.4](SPECTRE_0_4.md) · [Migration](MIGRATING_TO_0_4.md)
 
 Pure reducer and standalone OTP examples remain supported. Agent `handle_directive` and Turn-handler sections refer to the retained legacy integration.
 
-This file is the normative public API manifest for Spectre Directive `0.1.0`.
-This package targets Spectre `0.4.0`. Compatibility
+This file is the normative public API manifest for Spectre Directive `0.2.0`.
+This package targets Spectre `0.4.1`. Compatibility
 guarantees apply only to the
 modules and callables listed below. Any module, function, macro, or callback
 not listed here is an implementation detail even when it is exported or
@@ -21,6 +21,9 @@ type, and struct contract.
 - `Spectre.Directive`
   - functions: `assign/2`, `await/1`, `await/2`, `await_input/1`, `await_input/2`, `cancel/1`, `cancel/2`, `child_spec/1`, `config/1`, `context/1`, `context_map/1`, `control/2`, `create/1`, `inform/2`, `inform/3`, `new/1`, `next/1`, `outcome/1`, `pause/1`, `plan/1`, `protocol/0`, `pulse/1`, `reasoning_input/1`, `reply/2`, `reply/3`, `request/1`, `respond/2`, `respond/3`, `resume/1`, `start_directive/1`, `start_directive/2`, `start_link/0`, `start_link/1`, `start_loop/1`, `start_loop/2`, `start_mission/1`, `start_mission/2`, `state/1`, `stop/1`, `subscribe/1`, `subscribe/2`, `trace/1`
   - macros: `__using__/1`
+- `Spectre.Directive.Activity`
+  - macros: `__using__/1`
+  - callbacks: `handle_invocation/3`
 - `Spectre.Directive.Handler`
   - callbacks: `handle_directive/2`
 - `Spectre.Directive.Invoker`
@@ -104,6 +107,11 @@ type, and struct contract.
   - functions: `add/2`, `add/3`, `add_many/2`, `add_many/3`, `new/0`, `new/1`, `put_assigns/2`
 
 ## AgentServer 0.4 boundary
+
+Installing `Spectre.Directive` registers the on-demand Activity
+`{:directive, :mission}` through `Spectre.Integration`. The host starts and
+controls it with the `Spectre.Server` Activity APIs. See
+[the integration guide](SPECTRE_0_4.md) for its inputs, signals and results.
 
 The `tools/1` implementation of `c:Spectre.Stack.Installable.tools/1` registers the pure reducer helper through the Stack.
 The generated `directive/3` is private to the Server. Its tagged results carry
