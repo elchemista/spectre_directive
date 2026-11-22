@@ -112,8 +112,10 @@ extension have their own confirmation callbacks.
 ## Runtime and examples
 
 Try an [AgentServer mission](examples/agent_server_activity.exs) with the local
-Spectre checkout. The example runs with a deterministic model and requires no
-credentials.
+Spectre checkout. The Agent classifies chat and work requests. The Root keeps
+a small chat history while two missions run, revises one by reference and
+answers the other by its wait reference. Local provider fixtures make the
+example repeatable without credentials.
 
 ```bash
 SPECTRE_PATH=../spectre mix run examples/agent_server_activity.exs

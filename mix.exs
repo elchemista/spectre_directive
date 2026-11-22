@@ -36,7 +36,7 @@ defmodule SpectreDirective.MixProject do
 
   defp docs do
     [
-      assets: %{"docs/assets" => "docs/assets"},
+      assets: %{"docs/assets" => "docs/assets", "examples" => "examples"},
       main: "readme",
       source_ref: @version,
       extras: [

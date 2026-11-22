@@ -56,29 +56,34 @@ defmodule SpectreDirective.Loop.Engine do
 
   @doc "Applies a response only when it matches the live pending request."
   @spec respond(State.t(), binary(), term()) :: result()
-  def respond(%State{status: status} = state, _request_id, _response)
-      when status in @terminal_statuses,
-      do: {:error, :mission_terminal, state}
-
-  def respond(%State{status: :paused} = state, _request_id, _response),
-    do: {:error, :mission_paused, state}
-
-  def respond(%State{} = state, request_id, response) when is_binary(request_id) do
-    # Correlating all three values prevents delayed LLM/tool replies from
-    # changing a mission after its request, plan, or current step moved on.
-    with {:ok, request} <- pending_request(state, request_id),
-         :ok <- current_plan_version(state, request),
-         :ok <- current_step(state, request),
-         state <- clear_request(state),
-         {:ok, state} <- apply_response(state, request, response) do
-      next(state)
-    else
+  def respond(%State{} = state, request_id, response) do
+    case accept_response(state, request_id, response) do
+      {:ok, updated} -> next(updated)
       {:error, reason} -> {:error, reason, state}
     end
   end
 
-  def respond(%State{} = state, request_id, _response),
-    do: {:error, {:invalid_request_id, request_id}, state}
+  @doc false
+  @spec accept_response(State.t(), binary(), term()) :: {:ok, State.t()} | {:error, term()}
+  def accept_response(%State{status: status}, _request_id, _response)
+      when status in @terminal_statuses,
+      do: {:error, :mission_terminal}
+
+  def accept_response(%State{status: :paused}, _request_id, _response),
+    do: {:error, :mission_paused}
+
+  def accept_response(%State{} = state, request_id, response) when is_binary(request_id) do
+    # Correlating all three values prevents delayed LLM/tool replies from
+    # changing a mission after its request, plan, or current step moved on.
+    with {:ok, request} <- pending_request(state, request_id),
+         :ok <- current_plan_version(state, request),
+         :ok <- current_step(state, request) do
+      apply_response(clear_request(state), request, response)
+    end
+  end
+
+  def accept_response(%State{}, request_id, _response),
+    do: {:error, {:invalid_request_id, request_id}}
 
   @doc "Adds application-supplied information without completing a pending request."
   @spec inform(State.t(), term(), keyword()) :: {:ok, State.t()} | {:error, term()}

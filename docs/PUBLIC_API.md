@@ -21,6 +21,9 @@ type, and struct contract.
 - `Spectre.Directive`
   - functions: `assign/2`, `await/1`, `await/2`, `await_input/1`, `await_input/2`, `cancel/1`, `cancel/2`, `child_spec/1`, `config/1`, `context/1`, `context_map/1`, `control/2`, `create/1`, `inform/2`, `inform/3`, `new/1`, `next/1`, `outcome/1`, `pause/1`, `plan/1`, `protocol/0`, `pulse/1`, `reasoning_input/1`, `reply/2`, `reply/3`, `request/1`, `respond/2`, `respond/3`, `resume/1`, `start_directive/1`, `start_directive/2`, `start_link/0`, `start_link/1`, `start_loop/1`, `start_loop/2`, `start_mission/1`, `start_mission/2`, `state/1`, `stop/1`, `subscribe/1`, `subscribe/2`, `trace/1`
   - macros: `__using__/1`
+- `Spectre.Directive.Activity`
+  - macros: `__using__/1`
+  - callbacks: `handle_invocation/3`
 - `Spectre.Directive.Handler`
   - callbacks: `handle_directive/2`
 - `Spectre.Directive.Invoker`

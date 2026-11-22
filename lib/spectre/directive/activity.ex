@@ -20,6 +20,10 @@ defmodule Spectre.Directive.Activity do
   60,000. An optional `prompt` selects an asset under the Activity's prompt root.
   Mission questions come through the Root's Activity lifecycle, with an explicit
   reply reference. Governed tool consent uses the Root's GAM decision API.
+
+  For an application-specific Activity, `use Spectre.Directive.Activity` and
+  implement `c:handle_invocation/3` to act on a tool result. The built-in
+  mission continues through Directive by default.
   """
 
   use Spectre.Activity, prompt_root: {:priv, :spectre_directive, "prompts"}
@@ -32,6 +36,67 @@ defmodule Spectre.Directive.Activity do
   alias SpectreDirective.{AgentDecision, Outcome, Request}
   alias SpectreDirective.Integration.SpectreAgent.Codec
   alias SpectreDirective.Loop.Engine
+
+  @typedoc "The correlated tool request, with the original arguments supplied to the adapter."
+  @type invocation :: %{
+          request_id: binary(),
+          tool: {atom() | binary() | integer() | tuple(), atom()},
+          args: map(),
+          plan_version: pos_integer()
+        }
+
+  @doc """
+  Handles the current Directive invocation's result.
+
+  The result is the same value delivered by the Server's command continuation.
+  For a governed operation it is `{:governed, result}`. `invocation.args` holds
+  the arguments before tool preparation. Use the governed outcome or your
+  application's persisted effect data when you need the authoritative material.
+
+  Return `:cont` to let Directive reason about the result, or return the supplied
+  Context with your changes and commands to take over the Activity. When
+  checkpointing is enabled, Spectre saves the handoff with those changes.
+  The application then owns subsequent commands and signals. Handle command results via
+  `c:Spectre.Server.handle_result/3` as usual. An unconfirmed result requires
+  reconciliation and fails the mission before this callback runs.
+  """
+  @callback handle_invocation(invocation(), term(), Context.t()) :: :cont | Context.t()
+
+  @doc """
+  Uses Directive's mission callbacks in an application Activity.
+
+  The options follow `Spectre.Activity` and default to Directive's packaged
+  mission prompt root. Override `handle_invocation/3` to customize how a
+  correlated tool result advances an application workflow.
+  """
+  @spec __using__(keyword()) :: Macro.t()
+  defmacro __using__(opts) do
+    opts =
+      Keyword.put_new(opts, :prompt_root, Macro.escape({:priv, :spectre_directive, "prompts"}))
+
+    quote do
+      use Spectre.Activity, unquote(opts)
+
+      @behaviour Spectre.Directive.Activity
+
+      @impl Spectre.Activity
+      def handle_start(args, ctx), do: Spectre.Directive.Activity.handle_start(args, ctx)
+
+      @impl Spectre.Activity
+      def handle_signal(signal, ctx), do: Spectre.Directive.Activity.handle_signal(signal, ctx)
+
+      @impl Spectre.Server
+      def handle_result({:directive, _id} = tag, result, ctx),
+        do: Spectre.Directive.Activity.handle_result(__MODULE__, tag, result, ctx)
+
+      def handle_result(tag, result, ctx), do: super(tag, result, ctx)
+
+      @impl Spectre.Directive.Activity
+      def handle_invocation(_invocation, _result, _ctx), do: :cont
+
+      defoverridable handle_start: 2, handle_signal: 2, handle_result: 3, handle_invocation: 3
+    end
+  end
 
   @mission_options [
     :goal,
@@ -48,6 +113,12 @@ defmodule Spectre.Directive.Activity do
     :max_iterations
   ]
 
+  @doc """
+  Starts reasoning for an authored mission or a goal map.
+
+  The map can supply the allowed tool aliases, a prompt asset and a user-answer
+  timeout. Return the Context to the Activity runtime to acquire its next command.
+  """
   @impl Spectre.Activity
   @spec handle_start(term(), Context.t()) :: Context.t()
   def handle_start(attrs, ctx) when is_map(attrs) do
@@ -55,7 +126,8 @@ defmodule Spectre.Directive.Activity do
 
     with {:ok, settings} <- settings(attrs),
          {:ok, state} <- SpectreDirective.new(options) do
-      advance(SpectreDirective.next(state), assign(ctx, :directive_settings, settings))
+      ctx = assign(ctx, %{directive_settings: settings, directive_handoff: nil})
+      advance(SpectreDirective.next(state), ctx)
     else
       {:error, reason} -> failed(ctx, reason)
     end
@@ -63,20 +135,54 @@ defmodule Spectre.Directive.Activity do
 
   def handle_start(_args, ctx), do: fail(ctx, :invalid_mission_arguments)
 
+  @doc """
+  Advances the default mission from a correlated command result.
+
+  Directive supplies its own result tag. Application-specific result handlers
+  use the normal Server continuation and delegate other clauses with `super/3`.
+  """
   @impl Spectre.Server
   @spec handle_result(term(), term(), Context.t()) :: Context.t()
-  def handle_result({:directive, id}, result, ctx) do
-    with {:ok, %{pending_request: %Request{id: ^id} = request} = state} <- restore(ctx),
-         {:ok, answer} <- answer(request, result) do
-      advance(SpectreDirective.respond(state, id, answer), ctx)
-    else
-      {:ok, _state} -> ctx
-      {:error, reason} -> failed(ctx, reason)
+  def handle_result({:directive, _id} = tag, result, ctx),
+    do: handle_result(__MODULE__, tag, result, ctx)
+
+  @doc false
+  @spec handle_invocation(invocation(), term(), Context.t()) :: :cont
+  def handle_invocation(_invocation, _result, _ctx), do: :cont
+
+  @doc false
+  @spec handle_result(module(), term(), term(), Context.t()) :: Context.t()
+  def handle_result(
+        _activity,
+        {:directive, _id},
+        _result,
+        %{assigns: %{directive_handoff: %{}}} = ctx
+      ),
+      do: no_response(ctx)
+
+  def handle_result(activity, {:directive, id}, result, ctx) do
+    case restore(ctx) do
+      {:ok, %{pending_request: %Request{id: ^id} = request} = state} ->
+        accept_result(activity, request, state, result, ctx)
+
+      {:ok, _state} ->
+        ctx
+
+      {:error, reason} ->
+        failed(ctx, reason)
     end
   end
 
+  @doc """
+  Applies a revision or observes an admitted GAM effect from a previous revision.
+
+  A revision retires the old request and starts reasoning again. If the
+  application owns the continuation after a handoff, it also owns later signals.
+  """
   @impl Spectre.Activity
   @spec handle_signal(term(), Context.t()) :: Context.t()
+  def handle_signal(_signal, %{assigns: %{directive_handoff: %{}}} = ctx), do: ctx
+
   def handle_signal({:revise, notes}, ctx) do
     with {:ok, state} <- restore(ctx),
          {:ok, updated} <- Engine.revise(state, %{revision: notes}) do
@@ -101,6 +207,58 @@ defmodule Spectre.Directive.Activity do
 
   def handle_signal(_signal, ctx), do: ctx
 
+  defp accept_result(
+         _activity,
+         %Request{kind: :invoke, id: id},
+         state,
+         {:error, {:tool_rejected, _, _, _}} = result,
+         ctx
+       ),
+       do: advance(SpectreDirective.respond(state, id, result), ctx)
+
+  defp accept_result(activity, request, state, result, ctx) do
+    case answer(request, result) do
+      {:ok, answer} when request.kind == :invoke ->
+        handle_invocation_result(activity, request, state, result, answer, ctx)
+
+      {:ok, answer} ->
+        advance(SpectreDirective.respond(state, request.id, answer), ctx)
+
+      {:error, reason} ->
+        failed(ctx, reason)
+    end
+  end
+
+  defp handle_invocation_result(activity, request, state, result, answer, ctx) do
+    with {:ok, tool, args} <- invocation(request.target, ctx),
+         {:ok, updated} <- Engine.accept_response(state, request.id, answer) do
+      invocation = %{
+        request_id: request.id,
+        tool: tool,
+        args: args,
+        plan_version: request.plan_version
+      }
+
+      case activity.handle_invocation(invocation, result, ctx) do
+        :cont -> advance(SpectreDirective.next(updated), ctx)
+        %Context{} = returned -> checkpoint_handoff(updated, invocation, returned, ctx)
+        _other -> failed(ctx, :invalid_invocation_callback_result)
+      end
+    else
+      {:error, reason} -> failed(ctx, reason)
+    end
+  end
+
+  defp checkpoint_handoff(state, invocation, returned, ctx) do
+    marker = Map.delete(invocation, :args)
+    returned = if returned.commands == [], do: no_response(returned), else: returned
+
+    case checkpoint(state, assign(returned, :directive_handoff, marker)) do
+      {:ok, saved} -> saved
+      {:error, reason} -> failed(ctx, reason)
+    end
+  end
+
   defp restore(ctx), do: ServerTool.decode(Map.get(ctx.assigns, :directive_state))
 
   defp checkpoint(state, ctx) do
@@ -117,7 +275,7 @@ defmodule Spectre.Directive.Activity do
 
   defp advance({:request, request, state}, ctx) do
     case checkpoint(state, ctx) do
-      {:ok, saved} -> dispatch(request, saved)
+      {:ok, saved} -> dispatch(request, state, saved)
       {:error, reason} -> failed(ctx, reason)
     end
   end
@@ -128,7 +286,7 @@ defmodule Spectre.Directive.Activity do
   defp advance({:done, %Outcome{} = outcome, _state}, ctx), do: failed(ctx, outcome.reason)
   defp advance({_status, reason, _state}, ctx), do: failed(ctx, reason)
 
-  defp dispatch(%Request{kind: :reason, id: id, context: context}, ctx) do
+  defp dispatch(%Request{kind: :reason, id: id, context: context}, _state, ctx) do
     %{prompt: prompt, tools: tools} = ctx.assigns.directive_settings
 
     payload =
@@ -140,17 +298,24 @@ defmodule Spectre.Directive.Activity do
     generate(ctx, prompt, assigns: %{directive: payload}, on_result: {:directive, id})
   end
 
-  defp dispatch(%Request{kind: :invoke, id: id, target: target}, ctx) do
+  defp dispatch(%Request{kind: :invoke, id: id, target: target}, state, ctx) do
     with {:ok, ref, args} <- invocation(target, ctx),
          false <- invocation_retired?(ctx, ref, args) do
       call_tool(ctx, ref, args, on_result: {:directive, id})
     else
-      true -> fail(ctx, :superseded_invocation_requires_reconciliation)
-      {:error, reason} -> failed(ctx, reason)
+      true ->
+        error = {:error, :superseded_invocation_requires_reconciliation}
+        advance(SpectreDirective.respond(state, id, error), ctx)
+
+      {:error, {:unknown_mission_tool, _name}} = error ->
+        advance(SpectreDirective.respond(state, id, error), ctx)
+
+      {:error, reason} ->
+        failed(ctx, reason)
     end
   end
 
-  defp dispatch(%Request{} = request, ctx) do
+  defp dispatch(%Request{} = request, _state, ctx) do
     await_input(ctx, :directive_answer,
       prompt: question(request),
       timeout: ctx.assigns.directive_settings.answer_timeout,

@@ -9,6 +9,14 @@
   scoped tools, and user replies while the Root remains available for other turns.
 - Run several missions independently and address them by Activity reference.
   A revised mission keeps its Activity reference and invalidates earlier replies.
+- Use `Spectre.Directive.Activity` in a custom Activity to continue an
+  application workflow from a correlated tool result.
+
+### Changed
+
+- Report unknown aliases and rejected tool arguments to the reasoner within
+  the mission's iteration budget. A previously retired invocation remains
+  blocked and returns an error the reasoner can act on.
 
 ### Compatibility
 

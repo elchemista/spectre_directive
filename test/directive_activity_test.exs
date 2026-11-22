@@ -53,6 +53,7 @@ defmodule SpectreDirective.DirectiveActivityTest do
     end
 
     def prepare(:publish, %{"id" => id}, _context), do: {:ok, %{id: id}}
+    def prepare(:publish, _, _context), do: {:error, :invalid_publish_arguments}
     def project(:publish, result), do: {:ok, result}
 
     @impl true
@@ -66,6 +67,9 @@ defmodule SpectreDirective.DirectiveActivityTest do
       end
     end
 
+    def execute_effect(:publish, %{id: "uncertain"}, _context),
+      do: {:error, :ambiguous, :publication_not_verified}
+
     def execute_effect(:publish, %{id: id}, _context) do
       publish(id)
     end
@@ -76,11 +80,41 @@ defmodule SpectreDirective.DirectiveActivityTest do
     end
   end
 
+  defmodule AppActivity do
+    use Spectre.Directive.Activity
+    alias Spectre.Directive.ServerTool
+
+    @impl Spectre.Directive.Activity
+    def handle_invocation(invocation, result, ctx) do
+      send(
+        Process.whereis(SpectreDirective.DirectiveActivityTest),
+        {:invocation, invocation, result}
+      )
+
+      assign(ctx, :summary, "Publication settled")
+    end
+
+    @impl Spectre.Activity
+    def handle_signal(:inspect_handoff, ctx) do
+      {:ok, state} = ServerTool.decode(ctx.assigns.directive_state)
+
+      handoff =
+        {ctx.assigns.directive_handoff, state.pending_request, state.working_context.last_result}
+
+      send(Process.whereis(SpectreDirective.DirectiveActivityTest), {:handoff, handoff})
+      ctx
+    end
+
+    def handle_signal(:finish, ctx), do: complete(ctx, %{result: ctx.assigns.summary})
+    def handle_signal(signal, ctx), do: super(signal, ctx)
+  end
+
   defmodule Stack do
     use Spectre.Stack
 
     install(Spectre.Directive)
     install(Documents)
+    activity(:controlled, AppActivity)
   end
 
   defmodule Root do
@@ -92,15 +126,28 @@ defmodule SpectreDirective.DirectiveActivityTest do
     def handle_flow({:work, :guided}, %Spectre.Input{text: "guided " <> goal}, ctx),
       do: start_mission(ctx, goal, :guided)
 
+    def handle_flow({:work, :controlled}, %Spectre.Input{text: "controlled " <> goal}, ctx),
+      do: start_mission(ctx, goal, :autonomous, type: :controlled)
+
+    def handle_flow({:work, :named}, %Spectre.Input{text: "named " <> goal}, ctx),
+      do: start_mission(ctx, goal, :autonomous, as: :report)
+
     def handle_flow({:work, :ping}, _input, ctx), do: respond(ctx, "pong")
     def handle_flow(flow, input, ctx), do: super(flow, input, ctx)
 
-    defp start_mission(ctx, goal, mode) do
+    defp start_mission(ctx, goal, mode, opts \\ []) do
+      {type, opts} = Keyword.pop(opts, :type, {:directive, :mission})
+
       start_activity(
         ctx,
-        {:directive, :mission},
-        %{goal: goal, mode: mode, tools: %{"publish" => {:documents, :publish}}},
-        scope: [{:documents, :publish}]
+        type,
+        %{
+          goal: goal,
+          mode: mode,
+          tools: %{"publish" => {:documents, :publish}},
+          max_iterations: 12
+        },
+        Keyword.put(opts, :scope, [{:documents, :publish}])
       )
     end
   end
@@ -114,6 +161,8 @@ defmodule SpectreDirective.DirectiveActivityTest do
     flow :work do
       on(:mission, regex: ~r/^mission .+/)
       on(:guided, regex: ~r/^guided .+/)
+      on(:controlled, regex: ~r/^controlled .+/)
+      on(:named, regex: ~r/^named .+/)
       on(:ping, regex: ~r/^ping$/)
     end
   end
@@ -202,14 +251,113 @@ defmodule SpectreDirective.DirectiveActivityTest do
       args: %{id: "D12"}
     })
 
-    assert_receive {Server, ^root,
-                    {:activity, %{ref: ^ref},
-                     {:failed, {:unknown_mission_tool, "documents.publish"}}}},
-                   @timeout
+    decide(inference("unknown_mission_tool"), %{kind: "complete_mission", result: "Unavailable"})
+    assert completed(root, ref) == "Unavailable"
 
     refute_received {Managed, _, {:presentation, _}}
     refute_received {:published, _}
     assert_chat(root)
+  end
+
+  test "repeated unknown aliases consume the mission's reasoning budget", %{root: root} do
+    ref = start_mission(root, "Attempt a publish")
+    invalid = %{kind: "invoke", target: "external_tool", args: %{}}
+
+    decide(inference("Attempt a publish"), invalid)
+    for _ <- 1..5, do: decide(inference("unknown_mission_tool"), invalid)
+
+    assert_receive {Server, ^root,
+                    {:activity, %{ref: ^ref}, {:failed, {:max_iterations_exceeded, 12}}}},
+                   @timeout
+
+    refute_received {Managed, _, {:presentation, _}}
+    refute_received {:published, _}
+  end
+
+  test "a tool preparation rejection informs Directive without handing off", %{root: root} do
+    ref = start_mission(root, "Publish with the correct identifier", "controlled")
+
+    decide(inference("Publish with the correct identifier"), %{
+      kind: "invoke",
+      target: "publish",
+      args: %{}
+    })
+
+    decide(inference("invalid_publish_arguments"), %{
+      kind: "complete_mission",
+      result: "Missing ID"
+    })
+
+    assert completed(root, ref) == "Missing ID"
+    refute_received {:invocation, _, _}
+    refute_received {Managed, _, {:presentation, _}}
+  end
+
+  test "an application consumes a correlated result and keeps control after revision", %{
+    root: root
+  } do
+    ref = start_mission(root, "Publish through the application", "controlled")
+
+    decide(inference("Publish through the application"), %{
+      kind: "invoke",
+      target: "publish",
+      args: %{id: "D12"}
+    })
+
+    presentation = present_publication(root, ref)
+    assert {:ok, _} = Server.decide(root, nil, presentation, :confirm)
+    assert_receive {:published, "D12"}, @timeout
+
+    assert_receive {:invocation,
+                    %{
+                      request_id: request,
+                      tool: {:documents, :publish},
+                      args: %{"id" => "D12"},
+                      plan_version: version
+                    },
+                    {:governed,
+                     %{
+                       act: %{consequence: %{"payload" => %{id: "D12"}}},
+                       outcome: %{status: :succeeded}
+                     }}},
+                   @timeout
+
+    assert is_binary(request)
+    assert version > 0
+    assert_handoff(root, ref, request, version)
+    assert {:ok, signal} = Server.signal_activity(root, ref, {:revise, "Later instructions"})
+
+    assert_receive {Server, ^root, {:activity, %{ref: ^ref}, {:signalled, ^signal, {:ok, _}}}},
+                   @timeout
+
+    assert_handoff(root, ref, request, version)
+
+    assert {:ok, _} = Server.signal_activity(root, ref, :finish)
+    assert completed(root, ref) == "Publication settled"
+    refute_received {:infer, _, _}
+    refute_received {:published, _}
+  end
+
+  test "an ambiguous outcome fails for reconciliation before calling the application", %{
+    root: root
+  } do
+    ref = start_mission(root, "Publish once", "controlled")
+
+    decide(inference("Publish once"), %{
+      kind: "invoke",
+      target: "publish",
+      args: %{id: "uncertain"}
+    })
+
+    assert {:ok, _} = Server.decide(root, nil, present_publication(root, ref), :confirm)
+
+    assert_receive {Server, ^root,
+                    {:activity, %{ref: ^ref},
+                     {:failed, {:unconfirmed_tool, %{status: :ambiguous}}}}},
+                   @timeout
+
+    refute_received {:invocation, _, _}
+    refute_received {:infer, _, _}
   end
 
   test "a guided plan needs an addressed reply before it can start its steps", %{root: root} do
@@ -230,15 +378,49 @@ defmodule SpectreDirective.DirectiveActivityTest do
     assert completed(root, ref) == "Handbook reviewed"
   end
 
-  test "a malformed model decision fails its mission and leaves the Root available", %{root: root} do
+  test "a malformed decision fails its mission while a sibling and the Root keep running", %{
+    root: root
+  } do
     ref = start_mission(root, "Build a draft")
-    decide(inference("Build a draft"), "Expected a decision object")
+    failed_model = inference("Build a draft")
+    sibling = start_mission(root, "Summarize the evidence")
+    surviving_model = inference("Summarize the evidence")
+
+    decide(failed_model, "Expected a decision object")
 
     assert_receive {Server, ^root,
                     {:activity, %{ref: ^ref}, {:failed, :invalid_mission_decision}}},
                    @timeout
 
     assert_chat(root)
+    decide(surviving_model, %{kind: "complete_mission", result: "Evidence summarized"})
+    assert completed(root, sibling) == "Evidence summarized"
+  end
+
+  test "a reused key leaves the old lifecycle identity and control target intact", %{root: root} do
+    first = start_mission(root, "Report for October", "named")
+
+    decide(inference("Report for October"), %{kind: "complete_mission", result: "October"})
+
+    assert_receive {Server, ^root, {:activity, identity, {:completed, %{result: "October"}}}},
+                   @timeout
+
+    # The application can process this completion after it has started the next report.
+    second = start_mission(root, "Report for November", "named")
+    november = inference("Report for November")
+    assert %{ref: ^first, key: :report} = identity
+    refute first == second
+    assert {:ok, %{ref: ^second, status: :running}} = Server.activity(root, :report)
+
+    assert {:ok, signal} = Server.signal_activity(root, first, {:revise, "Late change"})
+
+    assert_receive {Server, ^root,
+                    {:activity, %{ref: ^first, key: :report},
+                     {:signalled, ^signal, {:error, :inactive_activity}}}},
+                   @timeout
+
+    decide(november, %{kind: "complete_mission", result: "November"})
+    assert completed(root, second) == "November"
   end
 
   test "a revision cannot replay a prior governed invocation", %{root: root} do
@@ -269,10 +451,12 @@ defmodule SpectreDirective.DirectiveActivityTest do
     decide(llm, %{kind: "complete_mission", result: "Stale model output"})
     decide(observed_llm, decision)
 
-    assert_receive {Server, ^root,
-                    {:activity, %{ref: ^ref},
-                     {:failed, :superseded_invocation_requires_reconciliation}}},
-                   @timeout
+    decide(inference("superseded_invocation_requires_reconciliation"), %{
+      kind: "complete_mission",
+      result: "The original publication is already recorded"
+    })
+
+    assert completed(root, ref) == "The original publication is already recorded"
 
     refute_received {:publishing, _}
     refute_received {Managed, _, {:presentation, _}}
@@ -310,6 +494,14 @@ defmodule SpectreDirective.DirectiveActivityTest do
 
     assert prompt =~ expected_prompt
     {id, revision}
+  end
+
+  defp assert_handoff(root, ref, request, version) do
+    assert {:ok, _} = Server.signal_activity(root, ref, :inspect_handoff)
+
+    assert_receive {:handoff,
+                    {%{request_id: ^request, plan_version: ^version}, nil, %{status: :succeeded}}},
+                   @timeout
   end
 
   defp assert_chat(root) do

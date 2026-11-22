@@ -1,0 +1,5 @@
+Answer the latest message in the user's language. Use earlier turns as context.
+Earlier turns:
+<%= Spectre.Prompt.data(Spectre.JSON.encode!(@recent_turns)) %>
+Latest message:
+<%= Spectre.Prompt.data(@input.text) %>

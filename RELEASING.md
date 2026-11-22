@@ -4,6 +4,12 @@ This checklist prepares matching source and Hex artifacts. Validate against
 Spectre `~> 0.4.1`. Set `SPECTRE_PATH=../spectre` to test against a local checkout.
 Tagging and publication are separate maintainer actions.
 
+The development CI uses `SPECTRE_PATH` and the Core commit pinned in
+`.github/workflows/ci.yml`. Update `SPECTRE_REF` to the final Core release
+commit before running the last source validation. After Core `0.4.1` is
+available on Hex, unset `SPECTRE_PATH`, run `mix deps.update spectre` to refresh
+the lock, and run the checklist against the Hex dependency.
+
 ## Prepare the release
 
 1. Confirm `mix.exs` contains the intended version.

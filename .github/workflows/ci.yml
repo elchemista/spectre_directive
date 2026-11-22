@@ -14,6 +14,8 @@ concurrency:
 env:
   ELIXIR_VERSION: "1.19.x"
   OTP_VERSION: "28.x"
+  SPECTRE_REF: "af553337b3fb6ff3e28b6ac2c7dda090eece62b2"
+  SPECTRE_PATH: ${{ github.workspace }}/.ci/spectre
 
 jobs:
   test:
@@ -28,6 +30,14 @@ jobs:
         with:
           persist-credentials: false
 
+      - name: Check out Spectre 0.4.1
+        uses: actions/checkout@v6
+        with:
+          repository: elchemista/spectre
+          ref: ${{ env.SPECTRE_REF }}
+          path: .ci/spectre
+          persist-credentials: false
+
       - name: Set up Elixir and Erlang/OTP
         uses: erlef/setup-beam@v1
         with:
@@ -37,11 +47,15 @@ jobs:
       - name: Install dependencies
         run: mix deps.get
 
-      - name: Run tests
-        run: mix test
+      - name: Check formatting and compilation
+        run: |
+          mix format --check-formatted
+          mix compile --warnings-as-errors
 
-      - name: Verify published Spectre dependency
-        run: mix deps | grep -E '^\* spectre 0\.4\.[0-9]+ \(Hex package\)'
+      - name: Run tests and Activity example
+        run: |
+          mix test --cover
+          mix run examples/agent_server_activity.exs
 
       - name: Run Credo (non-strict)
         run: mix credo
@@ -58,6 +72,14 @@ jobs:
         with:
           persist-credentials: false
 
+      - name: Check out Spectre 0.4.1
+        uses: actions/checkout@v6
+        with:
+          repository: elchemista/spectre
+          ref: ${{ env.SPECTRE_REF }}
+          path: .ci/spectre
+          persist-credentials: false
+
       - name: Set up Elixir and Erlang/OTP
         uses: erlef/setup-beam@v1
         with:
@@ -69,3 +91,6 @@ jobs:
 
       - name: Run Dialyzer
         run: mix dialyzer
+
+      - name: Build documentation
+        run: mix docs --warnings-as-errors

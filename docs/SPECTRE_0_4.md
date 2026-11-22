@@ -17,15 +17,28 @@ def handle_flow({:research, :start}, input, ctx) do
 end
 ```
 
-The Activity starts an autonomous mission using `goal`. The optional `tools`
-map gives the model names for installed Stack bindings. `scope:` limits the
-Activity's access for this execution. For a mission that only needs the model,
-pass the goal by itself.
+The second argument is the installed Activity type. The map is the mission
+configuration and the trailing keyword list configures the Core start command.
+`scope:` limits access for this execution. For a reasoning-only mission, pass
+the goal by itself.
 
-`mode: :guided` asks before applying a plan or patch. Supply `steps:` when
-the application has an authored plan, `max_iterations:` for a mission's
-reasoning budget, and `answer_timeout:` to override the default 60-second
-wait. The default mode is `:autonomous`.
+| Mission map field | Input and purpose |
+| --- | --- |
+| `goal` or `mission` | A non-empty objective. Pass a string in `goal` or a `SpectreDirective.Mission` or mission attribute map in `mission`. When supplying an authored mission, put its context and criteria in that value. |
+| `context` | Portable application context for a string goal, for example the recent turns needed to understand a reference. |
+| `success_criteria` or `success` | Desired result for a string goal, for example a comparison containing a recommendation. |
+| `constraints`, `risk_boundaries` | Guidance for planning, such as a preferred language or an instruction to stop when data is missing. The host separately defines the actual tool and GAM permissions. |
+| `information` | Initial information entries available to the reducer. |
+| `steps` or `plan` | An authored starting plan. `steps` supplies step definitions. `plan` supplies a plan or plan attributes and takes precedence when present. |
+| `mode` | `:autonomous` by default. Use `:guided` for confirmation before applying a proposed plan or patch. |
+| `max_iterations` | Positive reducer budget, default 100. Tool errors and corrective decisions use the same budget. |
+| `tools` | Map of string aliases to installed `{installation, operation}` pairs. Default is an empty map. Tool arguments from model JSON use string keys. |
+| `prompt` | Name or path of a prompt asset under the Activity's prompt root. The default is Directive's `:mission` prompt. |
+| `answer_timeout` | Positive timeout in milliseconds for a mission answer. Default is 60,000. |
+
+Use the separate Core command options for `as:`, `scope:`, and an optional
+`on_result:` tag for the start result. A tag identifies a continuation on
+the Root. Lifecycle events carry the execution reference and the final result.
 
 The Root receives lifecycle events as
 `{Spectre.Server, root, {:activity, identity, event}}`. `identity.ref` selects
@@ -33,6 +46,12 @@ one execution. An Activity can start, request input, complete with
 `{:completed, %{mission_id: id, result: result}}`, or report a failure.
 Implement `handle_activity/3` on the Server when the application needs to
 react in a callback.
+
+Two calls to `start_activity/4` create separate executions. Use `as: :report`
+when the application wants a named execution. The key can be reused after the
+previous execution ends. `Spectre.Server.activity(root, :report)` resolves the
+current execution. Lifecycle events carry their original `identity.ref`, so
+an event from an earlier report stays associated with that report after reuse.
 
 ## Answer a question and revise a mission
 
@@ -50,13 +69,18 @@ receive do
 end
 ```
 
-Free-text answers are explicitly addressed. Other messages can still reach the
+Here `root` is the server PID and `MyApp.UI.ask/1` stands for the application's
+UI. `ref` selects the Activity, and `{id, revision}` addresses this version
+of the question. Free-text answers are explicitly addressed. Other messages can still reach the
 Root's ordinary routes while a mission waits. An authorized caller can inspect
 the mission with `Spectre.Server.activity/2`, revise it with
 `Spectre.Server.signal_activity(root, ref, {:revise, notes})`, or stop it with
 `Spectre.Server.cancel_activity(root, ref)`. The same control requests are
 available in Server callbacks with the context as the first argument. A
 revision starts reasoning with the new information and invalidates old waits.
+Use `if_revision:` with a trusted snapshot to avoid applying a revision to
+newer work. The returned request ID acknowledges that the control was queued.
+Read its `{:signalled, request_id, result}` event for the applied result.
 
 ## Model decisions and GAM effects
 
@@ -78,9 +102,61 @@ information for planning. Approval uses the GAM presentation reference.
 Directive feeds an observed outcome back into reasoning and reports uncertain
 effects for reconciliation through the host.
 
+An unknown alias or a tool preparation rejection goes back to the model as a
+tool error. The model can correct the request or finish the mission. These
+decisions use the same `max_iterations:` budget as other reasoning steps.
+An invocation retired by a revision also returns an error and stays blocked.
+
 The integration test exercises this path with two missions, a deterministic
-model, and a GAM-governed effect. From this repository, run
-`SPECTRE_PATH=../spectre mix test test/directive_activity_test.exs`.
+model, and a GAM-governed effect. It also checks failure isolation and named
+reuse. From this repository, run
+`SPECTRE_PATH=../spectre mix test test/directive_activity_test.exs`. Run
+`SPECTRE_PATH=../spectre mix run examples/agent_server_activity.exs` to classify
+ordinary text, keep chat history, start two unnamed missions and keep chatting.
+The script revises one by its reference, answers the other, and shows how the
+default lifecycle reports a provider failure. Its local adapters use fixed
+responses for reproducibility. A production app can configure separate
+classifier, chat and mission inference providers.
+
+## Continue a workflow after a tool result
+
+Use the built-in Activity when Directive should decide what to do next. If the
+next step follows a rule you already know, keep that rule in Elixir. A custom
+Activity can inherit the mission callbacks and act on a correlated tool result.
+
+```elixir
+defmodule MyApp.Publication do
+  use Spectre.Directive.Activity
+
+  @impl Spectre.Directive.Activity
+  def handle_invocation(
+        %{tool: {:documents, :publish}},
+        {:governed, %{outcome: %{status: :succeeded, ref: receipt}}},
+        ctx
+      ) do
+    complete(ctx, %{result: "Document published", receipt: receipt})
+  end
+
+  def handle_invocation(_invocation, _result, _ctx), do: :cont
+end
+```
+
+Register it with `activity :publication, MyApp.Publication` in your Stack and
+start `:publication` with the same mission options and tool scope as the built-in
+Activity. The callback receives the request ID, tool reference, original
+arguments and plan version. The arguments are the input to the adapter. Use the
+governed outcome or your application's persisted effect data for material that
+the adapter normalized before admission.
+
+Return `:cont` to let Directive use the observed result and continue reasoning.
+Return the Activity context to take over the rest of the workflow. You can
+complete it immediately or issue another command and handle that result with
+`handle_result/3`. Governed commands still go through GAM. With checkpointing,
+Spectre stores the handoff alongside the commands. A later Directive result or
+revision leaves the continuation with the application. To start fresh
+reasoning within the same Activity, the application can explicitly call its
+`handle_start/2` with new mission options after resolving any in-flight
+effects. An ambiguous or unconfirmed outcome requires reconciliation.
 
 ## Manual reducer helper
 
