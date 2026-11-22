@@ -29,6 +29,10 @@ defmodule SpectreDirective.Integration.SpectreAgent.Codec do
 
   def decode(value), do: {:error, {:expected_json_response, value}}
 
+  @doc false
+  @spec json_value(term()) :: term()
+  def json_value(value), do: json_safe(value)
+
   @spec json_body(binary()) :: binary()
   defp json_body(text) do
     text = String.trim(text)

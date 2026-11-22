@@ -1,8 +1,92 @@
-# Directive with Spectre 0.4 AgentServer
+# Directive with Spectre 0.4.1 AgentServer
 
 [README](../README.md) · [Migration](MIGRATING_TO_0_4.md) · [Public API](PUBLIC_API.md)
 
-## Helper contract
+## Start a mission
+
+Install `Spectre.Directive` in the Stack and configure the Agent's model as
+shown in the [README](../README.md). In the Server's selected flow, return
+the context from `start_activity/4`.
+
+```elixir
+def handle_flow({:research, :start}, input, ctx) do
+  start_activity(ctx, {:directive, :mission}, %{
+    goal: input.text,
+    tools: %{"publish" => {:documents, :publish}}
+  }, scope: [{:documents, :publish}])
+end
+```
+
+The Activity starts an autonomous mission using `goal`. The optional `tools`
+map gives the model names for installed Stack bindings. `scope:` limits the
+Activity's access for this execution. For a mission that only needs the model,
+pass the goal by itself.
+
+`mode: :guided` asks before applying a plan or patch. Supply `steps:` when
+the application has an authored plan, `max_iterations:` for a mission's
+reasoning budget, and `answer_timeout:` to override the default 60-second
+wait. The default mode is `:autonomous`.
+
+The Root receives lifecycle events as
+`{Spectre.Server, root, {:activity, identity, event}}`. `identity.ref` selects
+one execution. An Activity can start, request input, complete with
+`{:completed, %{mission_id: id, result: result}}`, or report a failure.
+Implement `handle_activity/3` on the Server when the application needs to
+react in a callback.
+
+## Answer a question and revise a mission
+
+When a mission requests information, show the `prompt` from its waiting event
+and keep the Activity reference and the wait's ID and revision. Send the reply
+through the Root.
+
+```elixir
+receive do
+  {Spectre.Server, ^root,
+   {:activity, %{ref: ref}, {:waiting_input, %{id: id, revision: revision,
+                                             prompt: question}}}} ->
+    answer = MyApp.UI.ask(question)
+    Spectre.Server.input(root, answer, activity: ref, pending: {id, revision})
+end
+```
+
+Free-text answers are explicitly addressed. Other messages can still reach the
+Root's ordinary routes while a mission waits. An authorized caller can inspect
+the mission with `Spectre.Server.activity/2`, revise it with
+`Spectre.Server.signal_activity(root, ref, {:revise, notes})`, or stop it with
+`Spectre.Server.cancel_activity(root, ref)`. The same control requests are
+available in Server callbacks with the context as the first argument. A
+revision starts reasoning with the new information and invalidates old waits.
+
+## Model decisions and GAM effects
+
+The default mission prompt supplies the reducer context, decision protocol and
+the names of available tools. The model returns one JSON decision. These are
+three examples of responses on separate inference calls.
+
+```json
+{"kind":"ask","question":"Which document should I publish?"}
+{"kind":"invoke","target":"publish","args":{"id":"D12"}}
+{"kind":"complete_mission","result":"Document D12 published"}
+```
+
+Directive submits tool calls through `call_tool/4` with the mapped binding.
+For `publish`, the Stack must register a governed binding and the host must
+configure the GAM operation. If confirmation is required, use the usual Root
+presentation and decision APIs. A reply to the mission's question supplies
+information for planning. Approval uses the GAM presentation reference.
+Directive feeds an observed outcome back into reasoning and reports uncertain
+effects for reconciliation through the host.
+
+The integration test exercises this path with two missions, a deterministic
+model, and a GAM-governed effect. From this repository, run
+`SPECTRE_PATH=../spectre mix test test/directive_activity_test.exs`.
+
+## Manual reducer helper
+
+An application can still drive the reducer itself from Server callbacks.
+Select your Stack with `use Spectre.Server, tools: MyApp.Stack` to get the
+generated `directive(ctx, request, on_result: :mission)` helper.
 
 | Input | Meaning |
 | --- | --- |
@@ -24,7 +108,8 @@ in assigns. A normal two-element domain error is `{:error, reason}`.
 
 ## Connect reasoning without hiding it in the reducer
 
-Extend the README Server with these continuations and a configured model/prompt:
+Use these continuations with a configured model and prompt when you drive the
+reducer manually.
 
 ```elixir
 def handle_result(:mission,
@@ -77,11 +162,10 @@ resolution; portable data is not permission to execute it.
 
 ## Lifecycle choices
 
-Inside AgentServer use this pure helper. Native `SpectreDirective.new/next/respond`
-returns explicit state for ordinary Elixir hosts. The optional standalone mission
-runtime and Store behaviour are separate lifecycle choices, not automatically
-started Stack resources for the new helper. Legacy `handle_directive` and
-Turn-handler integration are retained in the
+Native `SpectreDirective.new/next/respond` returns explicit state for ordinary
+Elixir hosts. The optional standalone mission runtime and Store behaviour are
+separate lifecycle choices. Legacy `handle_directive` and Turn-handler
+integration are documented in the
 [reducer/OTP guide](REDUCER_AND_OTP_RUNTIME.md) and
 [legacy Agent guide](SPECTRE_AGENT_INTEGRATION.md).
 

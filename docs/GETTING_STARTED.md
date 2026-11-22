@@ -13,8 +13,8 @@ Add Spectre Directive to `mix.exs`:
 ```elixir
 def deps do
   [
-    {:spectre, "~> 0.4.0"},
-    {:spectre_directive, "~> 0.1.0"}
+    {:spectre, "~> 0.4.1"},
+    {:spectre_directive, "~> 0.2.0"}
   ]
 end
 ```

@@ -113,6 +113,14 @@ defmodule SpectreDirective.Loop.Engine do
 
   def inform(%State{}, _information, opts), do: {:error, {:invalid_information_options, opts}}
 
+  @doc false
+  @spec revise(State.t(), term()) :: {:ok, State.t()} | {:error, term()}
+  def revise(%State{} = state, information) do
+    with {:ok, state} <- inform(state, information, source: :revision) do
+      {:ok, %{clear_request(state) | pending_proposal: nil}}
+    end
+  end
+
   @doc "Merges application-owned assigns into future callback contexts."
   @spec assign(State.t(), map()) :: {:ok, State.t()} | {:error, term()}
   def assign(%State{status: status}, _assigns) when status in @terminal_statuses,

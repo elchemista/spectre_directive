@@ -1,36 +1,46 @@
 # Spectre Directive
 
-Directive is a resumable mission reducer. It holds a mission, plan and working
-context, emits one correlated request at a time, and applies the host's answer to
-reach the next request or outcome. It is useful without an AgentServer: the pure
-API passes state explicitly, and an optional OTP runtime can own standalone missions.
+Directive runs resumable missions for Elixir agents. It holds a mission, plan
+and working context, and advances them one correlated request at a time.
 
-In Spectre 0.4 the AgentServer is already the owner. Install Directive in the
-Stack and use its **pure reducer helper**; the Server chooses the model, asks the
-user questions and proposes consequential effects through GAM. Directive does not
-silently start another actor, call a model or execute a requested function.
+With Spectre 0.4.1, install Directive in the Stack and start an Activity when
+the agent receives a mission. It uses the Agent's model and scoped tools while
+the Root continues handling chat. Consequential operations use the same GAM
+Domain and approval flow as the Root. The pure reducer and standalone OTP
+runtime are also available to other Elixir hosts.
 
-![Spectre Directive: architecture](docs/assets/readme-architecture.svg)
-
-[Diagram source](docs/assets/readme-architecture.mmd).
-
-Directive owns mission transitions and request correlation. The Server decides
-how to answer each request and submits consequential work to GAM.
+```mermaid
+flowchart LR
+    User --> Root[AgentServer]
+    Root -->|Start or revise| Mission[Directive Activity]
+    Mission -->|Model and tool requests| Runtime[Spectre runtime]
+    Runtime -->|Governed tool| GAM
+    Mission -->|Question or result| Root
+```
 
 ## Installation
 
-Add the packages to your application:
+Add the packages to your application.
 
 ```elixir
 defp deps do
   [
-    {:spectre, "~> 0.4.0"},
-    {:spectre_directive, "~> 0.1.0"}
+    {:spectre, "~> 0.4.1"},
+    {:spectre_directive, "~> 0.2.0"}
   ]
 end
 ```
 
-For local development, use `SPECTRE_PATH=../spectre` when testing this repository.
+Use `SPECTRE_PATH=../spectre mix test` to try this repository with a local
+Spectre 0.4.1 checkout. To try both checkouts from your application, use local
+dependencies with paths relative to your application.
+
+```elixir
+[
+  {:spectre, path: "../spectre", override: true},
+  {:spectre_directive, path: "../spectre_directive"}
+]
+```
 
 ## Start a mission in AgentServer
 
@@ -40,45 +50,41 @@ defmodule MyApp.AI do
   install Spectre.Directive
 end
 
-defmodule MyApp.ResearchServer do
-  use Spectre.Server, tools: MyApp.AI
-
-  def handle_flow({:research, :start}, input, ctx) do
-    directive(ctx, {:new, %{mission: input.text, reasoner: :model}},
-      on_result: :mission)
-  end
-
-  def handle_result(:mission,
-      {:directive, %{status: :request, state: encoded, data: request}}, ctx) do
-    ctx
-    |> assign(:mission_state, encoded)
-    |> assign(:mission_request, request)
-    |> respond("Mission is waiting for #{request.kind}.")
-  end
-
-  def handle_result(:mission, {:directive, %{status: :done, data: outcome}}, ctx),
-    do: respond(ctx, inspect(outcome))
-
-  def handle_result(tag, result, ctx), do: super(tag, result, ctx)
-end
-
 defmodule MyApp.ResearchAgent do
   use Spectre.Agent, stack: MyApp.AI, server: MyApp.ResearchServer
+
+  model MyApp.LLM
+  router strategies: [:regex]
+
   flow :research do
     on :start, regex: ~r/^research\b/i
   end
 end
 
+defmodule MyApp.ResearchServer do
+  use Spectre.Server
+
+  def handle_flow({:research, :start}, input, ctx) do
+    start_activity(ctx, {:directive, :mission}, %{goal: input.text})
+  end
+
+  def handle_flow(flow, input, ctx), do: super(flow, input, ctx)
+
+  def handle_activity(_identity, {:completed, %{result: result}}, ctx) do
+    respond(ctx, inspect(result))
+  end
+
+  def handle_activity(_identity, _event, ctx), do: ctx
+end
+
 {:ok, server} = Spectre.Server.start_link(agent: MyApp.ResearchAgent, consumer: self())
-{:ok, interaction} = Spectre.Server.input(server, "research a supplier")
+{:ok, _interaction} = Spectre.Server.input(server, "research a supplier")
 ```
 
-This starts the mission and exposes its first request; it deliberately waits for
-the application to answer it. The [integration guide](docs/SPECTRE_0_4.md) shows
-how to continue with `{:respond, encoded_state, request_id, answer}`, handle
-reasoning and invocation requests, and preserve correlation across model calls.
-The canonical binary is the reducer state, not an executable process or a grant
-of authority. Functions and live handles cannot be saved inside it.
+`MyApp.LLM` is the application's Spectre model adapter. Each start gets an
+independent Activity reference. Use the same reference to revise, cancel or
+reply to that mission. See the [AgentServer integration guide](docs/SPECTRE_0_4.md)
+for questions, tool permissions, GAM consent and the manual reducer helper.
 
 ## The same reducer outside Spectre.Server
 
@@ -90,11 +96,10 @@ next = SpectreDirective.respond(state, request.id,
   {:propose_plan, [%{id: "read", title: "Read the supplier page"}]})
 ```
 
-`next` is another `{:request, request, state}`, `{:blocked, reason, state}`, or
-`{:done, outcome, state}` boundary (invalid replies may return `{:error, reason,
-state}`). The pure API never performs the requested work. The optional standalone
-runtime and legacy Agent extension are documented separately; their own confirmation
-callbacks are not GAM admission or a substitute for an admitted Act.
+`next` yields a request, a blocked state or an outcome. Invalid replies may
+return `{:error, reason, state}`. The host performs the requested work and
+returns the result to the reducer. The standalone runtime and legacy Agent
+extension have their own confirmation callbacks.
 
 ## Documentation
 
@@ -106,12 +111,24 @@ callbacks are not GAM admission or a substitute for an admitted Act.
 
 ## Runtime and examples
 
+Try an [AgentServer mission](examples/agent_server_activity.exs) with the local
+Spectre checkout. The example runs with a deterministic model and requires no
+credentials.
+
+```bash
+SPECTRE_PATH=../spectre mix run examples/agent_server_activity.exs
+```
+
 The generated `directive` helper also works in [Skill Server callbacks](https://github.com/elchemista/spectre/blob/0.4.0/docs/SKILLS.md).
 Skills share the root's GAM Domain; enable governed operations on the root and
 allow them in the mount's `governed:` references. The
 [core tool guide](https://github.com/elchemista/spectre/blob/0.4.0/docs/STACK_TOOLS.md) covers scheduling and recovery;
 [Managed GAM](https://github.com/elchemista/spectre/blob/0.4.0/docs/MANAGED_GAM.md) covers consent and registered execution.
 
-See the [LiveView demo](https://github.com/elchemista/demo_spectre) for an application,
-the [Spectre guides](https://spectre.guide) for articles, and the
-[release audit](https://github.com/elchemista/spectre/blob/0.4.0/docs/RELEASE_0_4.md) for verified revisions.
+Run the AgentServer integration test from this repository to see two concurrent
+missions, a targeted answer and a governed publication. The test uses a
+deterministic model and requires no credentials.
+
+```bash
+SPECTRE_PATH=../spectre mix test test/directive_activity_test.exs
+```

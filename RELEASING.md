@@ -1,7 +1,7 @@
 # Releasing
 
 This checklist prepares matching source and Hex artifacts. Validate against
-Spectre `~> 0.4.0`; use `SPECTRE_PATH` for an explicit local compatibility checkout.
+Spectre `~> 0.4.1`. Set `SPECTRE_PATH=../spectre` to test against a local checkout.
 Tagging and publication are separate maintainer actions.
 
 ## Prepare the release

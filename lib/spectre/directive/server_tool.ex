@@ -72,7 +72,7 @@ defmodule Spectre.Directive.ServerTool do
 
   def project(_operation, {status, data, %State{} = state})
       when status in [:request, :done, :blocked, :error] do
-    with {:ok, encoded} <- Value.encode(state, allowed_structs: @records, max_bytes: 900_000),
+    with {:ok, encoded} <- encode(state),
          {:ok, plain} <- projection(data) do
       {:ok, {:directive, %{status: status, data: plain, state: encoded}}}
     end
@@ -83,6 +83,11 @@ defmodule Spectre.Directive.ServerTool do
   end
 
   def project(_operation, _result), do: {:error, :invalid_directive_result}
+
+  @doc false
+  @spec encode(State.t()) :: {:ok, binary()} | {:error, term()}
+  def encode(%State{} = state),
+    do: Value.encode(state, allowed_structs: @records, max_bytes: 900_000)
 
   @doc "Restores only the bounded, known pure-loop representation; never executable ETF."
   def decode(encoded) do

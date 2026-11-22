@@ -1,7 +1,7 @@
 defmodule SpectreDirective.MixProject do
   use Mix.Project
 
-  @version "0.1.0"
+  @version "0.2.0"
   @source_url "https://github.com/elchemista/spectre_directive"
 
   def project do
@@ -78,6 +78,7 @@ defmodule SpectreDirective.MixProject do
       groups_for_modules: [
         "Public API": [
           Spectre.Directive,
+          Spectre.Directive.Activity,
           SpectreDirective,
           SpectreDirective.DSL
         ],
@@ -141,7 +142,7 @@ defmodule SpectreDirective.MixProject do
         {:spectre, path: Path.expand(path, __DIR__), override: true}
 
       _unset ->
-        {:spectre, "~> 0.4.0"}
+        {:spectre, "~> 0.4.1"}
     end
   end
 
@@ -154,7 +155,7 @@ defmodule SpectreDirective.MixProject do
         "Changelog" => "#{@source_url}/blob/#{@version}/CHANGELOG.md"
       },
       files:
-        ~w(lib docs examples mix.exs .formatter.exs README.md CHANGELOG.md SECURITY.md LICENSE)
+        ~w(lib priv docs examples mix.exs .formatter.exs README.md CHANGELOG.md SECURITY.md LICENSE)
     ]
   end
 end
